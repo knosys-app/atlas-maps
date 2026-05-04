@@ -1,27 +1,36 @@
 {
-  "id": "atlas-maps",
+  "knosysApi": 2,
+  "id": "knosys-maps",
   "name": "Maps",
-  "version": "1.0.0",
-  "description": "Offline maps with downloadable regions",
-  "author": "Ryan-Milton",
-  "authorUrl": "https://github.com/Ryan-Milton",
-  "minAtlasVersion": "1.0.0",
+  "version": "2.0.0",
+  "description": "Offline maps with downloadable regions.",
+  "author": {
+    "name": "Knosys",
+    "url": "https://github.com/knosys-app"
+  },
+  "compat": {
+    "knosys": ">=2.0.0 <3.0.0"
+  },
   "permissions": ["network", "storage", "filesystem", "core:locations"],
   "main": "main.js",
   "requiredApiKeys": [
     {
       "id": "maptiler",
       "name": "MapTiler API Key",
-      "description": "Required for downloading map tiles and styles for offline use",
+      "description": "Required for downloading map tiles and styles for offline use.",
       "signupUrl": "https://cloud.maptiler.com/account/keys",
       "required": true
     },
     {
       "id": "google_maps",
       "name": "Google Maps API Key",
-      "description": "Required for geocoding (converting addresses to coordinates)",
+      "description": "Required for geocoding (converting addresses to coordinates).",
       "signupUrl": "https://console.cloud.google.com/apis/credentials",
       "required": true
     }
-  ]
+  ],
+  "categories": ["maps", "data"],
+  "homepage": "https://github.com/knosys-app/atlas-maps",
+  "repository": "https://github.com/knosys-app/atlas-maps",
+  "license": "MIT"
 }
