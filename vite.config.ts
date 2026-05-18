@@ -2,8 +2,15 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
+// MapLibre GL is BUNDLED into the plugin (was external in v2.0.0). The
+// goal of v2.1.0 is to let the desktop app drop maplibre-gl from its
+// own dependency tree; bundling it here means the plugin runs without
+// any host-side MapLibre presence.
 export default defineConfig({
   plugins: [react()],
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
   build: {
     lib: {
       entry: resolve(__dirname, 'src/index.tsx'),
@@ -11,18 +18,13 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      // Don't bundle React - it's provided by the host app
-      external: ['react', 'react-dom', 'maplibre-gl'],
+      // React is still provided by the host. Everything else is bundled.
+      external: ['react', 'react-dom'],
       output: {
-        // Provide global variables for externals
-        globals: {
-          react: 'React',
-          'react-dom': 'ReactDOM',
-          'maplibre-gl': 'maplibregl',
-        },
+        globals: { react: 'React', 'react-dom': 'ReactDOM' },
       },
     },
-    // Output to plugin root
+    cssCodeSplit: false,
     outDir: '.',
     emptyOutDir: false,
   },

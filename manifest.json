@@ -2,8 +2,8 @@
   "knosysApi": 2,
   "id": "knosys-maps",
   "name": "Maps",
-  "version": "2.0.0",
-  "description": "Offline maps with downloadable regions.",
+  "version": "2.1.0",
+  "description": "Self-contained map viewer with online tiles. Offline regions return in v2.2.0.",
   "author": {
     "name": "Knosys",
     "url": "https://github.com/knosys-app"
@@ -11,22 +11,15 @@
   "compat": {
     "knosys": ">=2.0.0 <3.0.0"
   },
-  "permissions": ["network", "storage", "filesystem", "core:locations"],
+  "permissions": ["network"],
   "main": "main.js",
   "requiredApiKeys": [
     {
       "id": "maptiler",
       "name": "MapTiler API Key",
-      "description": "Required for downloading map tiles and styles for offline use.",
+      "description": "Optional — unlocks the MapTiler tile provider with more styles and higher zoom. Without it the plugin falls back to OpenFreeMap (no key required).",
       "signupUrl": "https://cloud.maptiler.com/account/keys",
-      "required": true
-    },
-    {
-      "id": "google_maps",
-      "name": "Google Maps API Key",
-      "description": "Required for geocoding (converting addresses to coordinates).",
-      "signupUrl": "https://console.cloud.google.com/apis/credentials",
-      "required": true
+      "required": false
     }
   ],
   "categories": ["maps", "data"],
