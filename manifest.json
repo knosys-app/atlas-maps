@@ -1,28 +1,43 @@
 {
-  "knosysApi": 2,
+  "knosysApi": 3,
   "id": "knosys-maps",
   "name": "Maps",
-  "version": "2.1.0",
-  "description": "Self-contained map viewer with online tiles. Offline regions return in v2.2.0.",
+  "version": "3.0.0",
+  "description": "Offline driving navigation. Search, route, turn-by-turn, GPS — fully offline once you've downloaded a region.",
   "author": {
     "name": "Knosys",
     "url": "https://github.com/knosys-app"
   },
   "compat": {
-    "knosys": ">=2.0.0 <3.0.0"
+    "knosys": ">=3.0.0 <4.0.0",
+    "electron": ">=28.0.0"
   },
-  "permissions": ["network"],
+  "permissions": [
+    "storage",
+    "network",
+    "vault:read",
+    "vault:write",
+    "sqlite:read",
+    "sqlite:write",
+    "routing:engine"
+  ],
   "main": "main.js",
-  "requiredApiKeys": [
+  "bundleSize": 3500000,
+  "nativeAssets": [
     {
-      "id": "maptiler",
-      "name": "MapTiler API Key",
-      "description": "Optional — unlocks the MapTiler tile provider with more styles and higher zoom. Without it the plugin falls back to OpenFreeMap (no key required).",
-      "signupUrl": "https://cloud.maptiler.com/account/keys",
-      "required": false
+      "id": "valhalla",
+      "label": "Valhalla routing engine",
+      "sizeBytes": 42000000,
+      "requires": "routing:engine"
+    },
+    {
+      "id": "planetiler",
+      "label": "Planetiler PMTiles builder",
+      "sizeBytes": 130000000,
+      "requires": "routing:engine"
     }
   ],
-  "categories": ["maps", "data"],
+  "categories": ["maps", "navigation"],
   "homepage": "https://github.com/knosys-app/atlas-maps",
   "repository": "https://github.com/knosys-app/atlas-maps",
   "license": "MIT"
