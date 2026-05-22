@@ -12,7 +12,7 @@ import type { PluginAPI, SharedDependencies, PluginRoute, PluginSidebarItem } fr
 import { PLUGIN_ID, PLUGIN_VERSION, MAPS_ROUTE_PATH, SIDEBAR_ORDER } from './constants'
 import { MapsPage } from './shell/maps-page'
 import { STARTER_REGION_COUNT } from './data/regions'
-import { installEngineIfMissing, subscribeEngineDeaths } from './routing/engine'
+import { installEngineIfMissing, stopActiveEngine, subscribeEngineDeaths } from './routing/engine'
 
 let pluginApi: PluginAPI | null = null
 let injectedStyleEl: HTMLStyleElement | null = null
@@ -80,10 +80,23 @@ export async function activate(api: PluginAPI, _shared: SharedDependencies): Pro
   })
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   if (engineDeathsUnsub) {
     engineDeathsUnsub()
     engineDeathsUnsub = null
+  }
+  // Stop the active Valhalla engine before clearing the api reference.
+  // The host's `closeAllRoutingHandlesForPlugin` also tears down handles
+  // on plugin disable, but routing/engine.ts holds module-level state
+  // (`activeEngine`) that would otherwise point at a dead handle on a
+  // mid-session re-enable — until the next `listHandles` reconciles.
+  // Calling `stopActiveEngine` keeps our local view consistent and
+  // avoids the small window where a stale handle id would be passed to
+  // a still-warm route call.
+  if (pluginApi) {
+    await stopActiveEngine(pluginApi).catch((err) => {
+      pluginApi?.log.warn('stopActiveEngine on deactivate failed (non-fatal):', err)
+    })
   }
   removeStyles()
   pluginApi = null

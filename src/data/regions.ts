@@ -1,7 +1,8 @@
 /**
- * Curated starter region manifest — 75 regions covering all 50 US
- * states + DC, 5 Canadian provinces, 14 European countries, and a few
- * APAC entries. Mirrors SpeedDeck's regions.py format.
+ * Curated starter region manifest — 76 regions covering all 50 US
+ * states + DC, 5 Canadian provinces, 15 European countries / regions
+ * (UK is split into England / Scotland / Wales), and 5 APAC entries.
+ * Mirrors SpeedDeck's regions.py format.
  *
  * Per the plan (Phase 2.6), every US state ships with an
  * `openAddressesSource` so step 7 of the region pipeline imports
@@ -174,7 +175,7 @@ const CANADA: RegionDefinition[] = [
   },
 ]
 
-// ---- Europe (14) + APAC (5) — helpers for compact entries ----
+// ---- Europe (15) + APAC (5) — helpers for compact entries ----
 
 function eu(slug: string, displayName: string, bbox: [number, number, number, number], sizes: RegionDefinition['estimatedSizes'], countryCode: string): RegionDefinition {
   const url = `https://download.geofabrik.de/europe/${slug}-latest.osm.pbf`
