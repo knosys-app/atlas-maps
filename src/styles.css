@@ -1,0 +1,98 @@
+/**
+ * knosys-maps v3 — design tokens, scoped under .kmaps-root.
+ *
+ * Ported (abbreviated) from /tmp/flight-planner/src/styles.css. The full
+ * flight-planner shell (Plan Pill, Layers, Rail, Sheet) needs another
+ * ~1500 lines of token definitions + motion easings + surface materials;
+ * that lands incrementally with the UI components in follow-on sessions.
+ *
+ * Scope: every selector starts with .kmaps-root so the plugin can never
+ * leak styles into the host or other plugins.
+ */
+
+.kmaps-root {
+  --kmaps-bg: #ffffff;
+  --kmaps-fg: #121216;
+  --kmaps-muted: #6a6a72;
+  --kmaps-accent: #007aff;
+  --kmaps-warn: #ff9f0a;
+  --kmaps-danger: #ff453a;
+  --kmaps-success: #34c759;
+
+  --kmaps-r-sm: 10px;
+  --kmaps-r-md: 14px;
+  --kmaps-r-lg: 20px;
+  --kmaps-r-xl: 28px;
+
+  --kmaps-s-1: 4px;
+  --kmaps-s-2: 8px;
+  --kmaps-s-3: 12px;
+  --kmaps-s-4: 16px;
+  --kmaps-s-5: 24px;
+  --kmaps-s-6: 32px;
+
+  --kmaps-spring-a: cubic-bezier(0.32, 0.72, 0, 1);
+  --kmaps-spring-b: cubic-bezier(0.25, 0.9, 0.3, 1.1);
+  --kmaps-spring-c: cubic-bezier(0.22, 1, 0.36, 1);
+  --kmaps-dur-quick: 180ms;
+  --kmaps-dur-base: 250ms;
+  --kmaps-dur-medium: 450ms;
+
+  --kmaps-font-display: -apple-system, 'SF Pro Display', BlinkMacSystemFont, system-ui, sans-serif;
+  --kmaps-font-text: -apple-system, 'SF Pro Text', BlinkMacSystemFont, system-ui, sans-serif;
+  --kmaps-font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+
+  font-family: var(--kmaps-font-text);
+  -webkit-font-smoothing: antialiased;
+  color: var(--kmaps-fg);
+  background: var(--kmaps-bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  .kmaps-root {
+    --kmaps-bg: #0e0e11;
+    --kmaps-fg: #ebebf0;
+    --kmaps-muted: #96969e;
+    --kmaps-accent: #0a84ff;
+    --kmaps-warn: #ffb340;
+    --kmaps-danger: #ff6961;
+    --kmaps-success: #30d158;
+  }
+}
+
+.kmaps-display {
+  font-family: var(--kmaps-font-display);
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.kmaps-mono {
+  font-family: var(--kmaps-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.kmaps-label-caps {
+  font-size: 11px;
+  font-weight: 590;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Glass-surface materials — copied verbatim from flight-planner. */
+
+.kmaps-surface-thin {
+  background: color-mix(in srgb, var(--kmaps-bg) 68%, transparent);
+  backdrop-filter: saturate(180%) blur(24px);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  box-shadow: 0 0.5px 0 inset rgba(255, 255, 255, 0.4), 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 30px -10px rgba(0, 0, 0, 0.12);
+}
+
+.kmaps-surface-thick {
+  background: color-mix(in srgb, var(--kmaps-bg) 86%, transparent);
+  backdrop-filter: saturate(180%) blur(24px);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  box-shadow: 0 0.5px 0 inset rgba(255, 255, 255, 0.5), 0 1px 2px rgba(0, 0, 0, 0.05), 0 16px 40px -12px rgba(0, 0, 0, 0.18);
+}
