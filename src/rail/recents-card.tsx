@@ -70,12 +70,13 @@ export function createRecentsCard(Shared: SharedDependencies) {
               font: 'inherit',
               transition: 'background var(--kmaps-dur-base) ease',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgb(var(--kmaps-fg) / 0.06)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent'
-            }}
+            // Apply highlight on hover AND keyboard focus so Tab-
+            // navigating users see the same visual indicator as
+            // pointer users (WCAG 2.4.7 Focus Visible).
+            onMouseEnter={highlightRow}
+            onMouseLeave={resetRow}
+            onFocus={highlightRow}
+            onBlur={resetRow}
           >
             <span style={{ fontSize: 13, fontWeight: 500 }}>{r.destinationName}</span>
             <span
@@ -94,4 +95,12 @@ export function createRecentsCard(Shared: SharedDependencies) {
   }
 
   return RecentsCard
+}
+
+function highlightRow(e: React.SyntheticEvent<HTMLButtonElement>): void {
+  e.currentTarget.style.background = 'rgb(var(--kmaps-fg) / 0.06)'
+}
+
+function resetRow(e: React.SyntheticEvent<HTMLButtonElement>): void {
+  e.currentTarget.style.background = 'transparent'
 }
