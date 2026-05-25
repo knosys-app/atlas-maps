@@ -199,9 +199,16 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
   // the layer hasn't been added yet (initial-load hasn't fired) — in
   // that case the `style.load` handler in the mount IIFE picks up
   // `routeGeometryRef.current` and writes the latest value when the
-  // style finishes loading, so nothing's lost. Bounds-fit only on
-  // null → present transitions; recalcs against the same destinations
-  // don't bounce the camera.
+  // style finishes loading, so nothing's lost.
+  //
+  // Bounds-fit only on null → present transitions. This relies on a
+  // contract with `route-store.ts`: `setPreview` sets
+  // `preview.route = null` synchronously before its `await`, so every
+  // route change is observed by this effect as `geometry → null` →
+  // `geometry → new`. A direct A → B transition without the null pass
+  // would skip the fit and leave the camera stuck on A's viewport —
+  // verify that contract holds if the store's optimistic-update
+  // pattern ever changes.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return

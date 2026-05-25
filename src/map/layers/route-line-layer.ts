@@ -42,7 +42,14 @@ const EMPTY_GEOMETRY: RouteLineGeometry = {
 }
 
 /** Add the route-line source + the casing + main layers. Idempotent
- *  — calling on a map that already has the source bails. */
+ *  — calling on a map that already has the source bails.
+ *
+ *  Both layers insert BEFORE the first symbol layer in the active
+ *  style so road names, POI labels, and place names stay legible on
+ *  top of the route ribbon. With the v3.0 empty style (no symbols
+ *  yet — slice 6 brings real PMTiles styles), `firstSymbolId` is
+ *  undefined and MapLibre falls back to "add on top," matching the
+ *  prior behavior. */
 export function addRouteLineLayer(map: MaplibreMap): void {
   if (map.getSource(ROUTE_LINE_SOURCE_ID)) return
 
@@ -51,34 +58,47 @@ export function addRouteLineLayer(map: MaplibreMap): void {
     data: EMPTY_GEOMETRY as unknown as GeoJSON.Geometry,
   })
 
+  // Find the first symbol layer in the current style — labels for
+  // roads / POIs / places live in symbol layers. Inserting our
+  // lines BEFORE this layer keeps labels rendering on top of the
+  // ribbon. Undefined when the style has no symbol layers (e.g.
+  // the v3.0 empty style); addLayer treats undefined as "add on
+  // top," preserving the prior behavior.
+  const firstSymbolId = map
+    .getStyle()
+    ?.layers?.find((l) => l.type === 'symbol')?.id
+
   // Casing — slightly wider, near-white, soft opacity. Sits behind
   // the main line so the route reads as a haloed ribbon rather than
   // a flat stripe. Width interpolated by zoom — narrower far out,
   // beefier when the user zooms in to inspect maneuvers.
-  map.addLayer({
-    id: ROUTE_LINE_CASING_LAYER_ID,
-    type: 'line',
-    source: ROUTE_LINE_SOURCE_ID,
-    paint: {
-      'line-color': '#ffffff',
-      'line-opacity': 0.85,
-      'line-width': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        8,
-        4,
-        14,
-        10,
-        18,
-        14,
-      ],
+  map.addLayer(
+    {
+      id: ROUTE_LINE_CASING_LAYER_ID,
+      type: 'line',
+      source: ROUTE_LINE_SOURCE_ID,
+      paint: {
+        'line-color': '#ffffff',
+        'line-opacity': 0.85,
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          8,
+          4,
+          14,
+          10,
+          18,
+          14,
+        ],
+      },
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
     },
-    layout: {
-      'line-cap': 'round',
-      'line-join': 'round',
-    },
-  })
+    firstSymbolId,
+  )
 
   // Main — SF system blue (the kmaps accent). Hard-coded RGB rather
   // than `rgb(var(--kmaps-accent))` because MapLibre renders to a
@@ -86,29 +106,32 @@ export function addRouteLineLayer(map: MaplibreMap): void {
   // light + dark accent (10 132 255 ≈ 0A84FF), within ~2 units of
   // either — close enough that the route reads as system-blue under
   // both themes.
-  map.addLayer({
-    id: ROUTE_LINE_MAIN_LAYER_ID,
-    type: 'line',
-    source: ROUTE_LINE_SOURCE_ID,
-    paint: {
-      'line-color': '#0A84FF',
-      'line-width': [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        8,
-        2.5,
-        14,
-        6,
-        18,
-        9,
-      ],
+  map.addLayer(
+    {
+      id: ROUTE_LINE_MAIN_LAYER_ID,
+      type: 'line',
+      source: ROUTE_LINE_SOURCE_ID,
+      paint: {
+        'line-color': '#0A84FF',
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          8,
+          2.5,
+          14,
+          6,
+          18,
+          9,
+        ],
+      },
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
     },
-    layout: {
-      'line-cap': 'round',
-      'line-join': 'round',
-    },
-  })
+    firstSymbolId,
+  )
 }
 
 /** Update the route-line geometry. Pass `null` to clear (the layer
