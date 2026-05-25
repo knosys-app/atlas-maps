@@ -63,17 +63,23 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
 
   async update(api: PluginAPI, patch: Partial<MapsSettings>) {
-    const next: MapsSettings = {
+    // Optimistic update: apply the patch immediately so the chrome
+    // responds without waiting for the IPC. On persist failure we roll
+    // back to the prior snapshot so the in-session state can't diverge
+    // from what reloads next session — otherwise the user would see
+    // their choice silently revert on restart.
+    const prev: MapsSettings = {
       profile: get().profile,
       mapStyle: get().mapStyle,
       units: get().units,
-      ...patch,
     }
+    const next: MapsSettings = { ...prev, ...patch }
     set(next)
     try {
       await api.storage.set(STORAGE_KEY, next)
     } catch (err) {
-      api.log.warn('settings: persist failed', err)
+      api.log.warn('settings: persist failed, rolling back', err)
+      set(prev)
     }
   },
 }))

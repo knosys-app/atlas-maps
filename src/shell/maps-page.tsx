@@ -17,7 +17,7 @@ import type { ComponentType } from 'react'
 import type { PluginAPI, SharedDependencies } from '@/types'
 import { STARTER_REGION_COUNT } from '@/data/regions'
 import { installEngineIfMissing } from '@/routing/engine'
-import { useSettingsStore } from '@/store/settings-store'
+import { useSettingsStore, type MapsSettings } from '@/store/settings-store'
 import { MapsShell } from './maps-shell'
 import { createPlanPill } from './plan-pill'
 import { createLayersButton } from './layers-button'
@@ -63,7 +63,10 @@ export function createMapsPage(
       }
     }, [])
 
-    const onSettingsChange = (patch: Partial<typeof settings>) =>
+    // Narrowing to `Partial<MapsSettings>` (not `Partial<typeof settings>`)
+    // — the bound store object also carries `hydrated` / `hydrate` /
+    // `update`, which are not valid update patches.
+    const onSettingsChange = (patch: Partial<MapsSettings>) =>
       settings.update(api, patch)
 
     // The map slot stays a placeholder until the MapLibre viewer lands in

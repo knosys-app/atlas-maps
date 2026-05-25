@@ -133,12 +133,14 @@ export function createPlanPill(Shared: SharedDependencies) {
             style={{ minWidth: 220 }}
           >
             {onSaveDestination ? (
-              <DropdownMenuItem onSelect={onSaveDestination}>
-                {Star ? <Star className="w-4 h-4 mr-2" /> : null}
-                Save destination
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuItem onSelect={onSaveDestination}>
+                  {Star ? <Star className="w-4 h-4 mr-2" /> : null}
+                  Save destination
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
             ) : null}
-            <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={onClearRoute}
               style={{ color: 'rgb(var(--kmaps-danger))' }}
