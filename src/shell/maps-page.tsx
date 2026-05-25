@@ -29,6 +29,7 @@ import { createSearchCard, type SearchSuggestion } from '@/rail/search-card'
 import { createRecentsCard, type RecentRoute } from '@/rail/recents-card'
 import { createBriefingCard, type BriefingPreview } from '@/rail/briefing-card'
 import { createSavedCard } from '@/rail/saved-card'
+import { createRouteCard, type RouteFromPoint } from '@/rail/route-card'
 import { useSavedStore } from '@/store/saved-store'
 import { useRouteStore } from '@/store/route-store'
 import { STARTER_REGIONS } from '@/data/regions'
@@ -55,6 +56,7 @@ export function createMapsPage(
   const RecentsCard = createRecentsCard(Shared)
   const BriefingCard = createBriefingCard(Shared)
   const SavedCard = createSavedCard(Shared)
+  const RouteCard = createRouteCard(Shared)
   const StepsTab = createStepsTab(Shared)
   const ProfileTab = createProfileTab(Shared)
 
@@ -183,20 +185,92 @@ export function createMapsPage(
       lastPreviewIdRef.current = previewId
     }, [route.preview?.destination.id])
 
-    // Wire SearchCard selection → route store preview. The "from"
-    // anchor is the active region's bbox center for v3.0; v3.1's GPS
-    // slice will swap in the live fix.
+    // Explicit "from" override. When null, the resolved from defaults
+    // to the active region's bbox center (the v3.0 stand-in for the
+    // live GPS fix that arrives in v3.1). When set, the user has
+    // chosen a specific origin via the Route card.
+    const [fromOverride, setFromOverride] = useState<RouteFromPoint | null>(null)
+
+    // Resolve the from anchor. Returns null when there's no active
+    // region (and therefore no fallback center either). Memo-less —
+    // this is a synchronous derivation of a couple of cheap fields,
+    // and a memo would just hide the dependencies.
+    const resolveFrom = (): RouteFromPoint | null => {
+      if (fromOverride) return fromOverride
+      return regionCenter(activeRegionId, api)
+    }
+
+    const resolvedFrom = resolveFrom()
+
+    // Wire SearchCard selection → route store preview. Uses the
+    // currently-resolved from (override if set, otherwise region
+    // center). v3.1's GPS slice will swap the implicit fallback in
+    // for the live fix.
     const handleSelectDestination = (s: SearchSuggestion) => {
-      if (!activeRegionId) return
-      const region = STARTER_REGIONS.find((r) => r.id === activeRegionId)
-      if (!region) {
-        api.log.warn(`route: no region definition for ${activeRegionId}`)
-        return
-      }
-      const [west, south, east, north] = region.bbox
-      const from = { lat: (south + north) / 2, lon: (west + east) / 2 }
+      if (!activeRegionId || !resolvedFrom) return
       const profile = settingsProfileToRoute(settings.profile)
-      void route.setPreview(api, activeRegionId, from, profile, s)
+      void route.setPreview(api, activeRegionId, resolvedFrom, profile, s)
+    }
+
+    // Route card → set the explicit from override. If a destination
+    // is already previewed, retrigger calculation against the new
+    // origin so the user sees the route update immediately.
+    const handleChangeFrom = (point: RouteFromPoint | null) => {
+      setFromOverride(point)
+      const dest = route.preview?.destination
+      if (!dest || !activeRegionId) return
+      // Recompute the effective from with the NEW override applied —
+      // can't use the stale `resolvedFrom` above because `setFromOverride`
+      // is async. If the user cleared the override (point === null),
+      // `regionCenter()` provides the fallback. If `regionCenter` also
+      // returns null (no region match), there's nothing to recalc
+      // against so bail.
+      const effectiveFrom = point ?? regionCenter(activeRegionId, api)
+      if (!effectiveFrom) return
+      const profile = settingsProfileToRoute(settings.profile)
+      void route.setPreview(api, activeRegionId, effectiveFrom, profile, dest)
+    }
+
+    // Route card → set destination. Same wiring as the SearchCard path
+    // — both entry points funnel through `handleSelectDestination` so a
+    // future divergence (e.g. extra validation for Route-card-entered
+    // destinations) can't accidentally apply to one path and miss the
+    // other.
+    const handleChangeTo = handleSelectDestination
+
+    // Route card → swap from + to and recalculate. The destination
+    // becomes the new from; the old from becomes the destination.
+    const handleSwap = () => {
+      const dest = route.preview?.destination
+      if (!dest || !resolvedFrom || !activeRegionId) return
+      // Synthesise a SearchSuggestion for the old from. The id is
+      // deterministic from the coords so a subsequent swap-back
+      // doesn't bounce the auto-open-sheet effect (which keys off
+      // destination.id transitions).
+      const newDest: SearchSuggestion = {
+        id: `from:${resolvedFrom.lat.toFixed(5)},${resolvedFrom.lon.toFixed(5)}`,
+        name: resolvedFrom.name,
+        lat: resolvedFrom.lat,
+        lon: resolvedFrom.lon,
+      }
+      const newFrom: RouteFromPoint = {
+        name: dest.name,
+        lat: dest.lat,
+        lon: dest.lon,
+      }
+      setFromOverride(newFrom)
+      const profile = settingsProfileToRoute(settings.profile)
+      void route.setPreview(api, activeRegionId, newFrom, profile, newDest)
+    }
+
+    // Route card → retrigger calculation with the existing from + to.
+    // Useful after a profile change in Layers — the calculated route
+    // doesn't auto-refresh, so this is the user's affordance.
+    const handleRecalc = () => {
+      const dest = route.preview?.destination
+      if (!dest || !resolvedFrom || !activeRegionId) return
+      const profile = settingsProfileToRoute(settings.profile)
+      void route.setPreview(api, activeRegionId, resolvedFrom, profile, dest)
     }
 
     return (
@@ -247,6 +321,19 @@ export function createMapsPage(
                   onSelectDestination={handleSelectDestination}
                 />
               </RailSection>
+              <RailSection title="Route">
+                <RouteCard
+                  api={api}
+                  regionId={activeRegionId}
+                  from={resolvedFrom}
+                  to={route.preview?.destination ?? null}
+                  fromIsExplicit={fromOverride !== null}
+                  onChangeFrom={handleChangeFrom}
+                  onChangeTo={handleChangeTo}
+                  onSwap={handleSwap}
+                  onRecalc={handleRecalc}
+                />
+              </RailSection>
               <RailSection title="Saved">
                 <SavedCard
                   destinations={saved.destinations}
@@ -283,6 +370,28 @@ export function createMapsPage(
   }
 
   return MapsPage
+}
+
+/** Region-center fallback "from" point. The v3.0 stand-in for the
+ *  live GPS fix that arrives in v3.1. Returns null when there's no
+ *  active region OR when the region id doesn't match a manifest
+ *  entry (caller should treat null as "can't route from here"). */
+function regionCenter(
+  regionId: string | null,
+  api: PluginAPI,
+): RouteFromPoint | null {
+  if (!regionId) return null
+  const region = STARTER_REGIONS.find((r) => r.id === regionId)
+  if (!region) {
+    api.log.warn(`route: no region definition for ${regionId}`)
+    return null
+  }
+  const [west, south, east, north] = region.bbox
+  return {
+    name: 'Region center',
+    lat: (south + north) / 2,
+    lon: (west + east) / 2,
+  }
 }
 
 /** Map the settings store's profile name to the routing store's
