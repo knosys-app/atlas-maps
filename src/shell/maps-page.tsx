@@ -28,6 +28,8 @@ import { createRouteRail } from '@/rail/route-rail'
 import { createSearchCard } from '@/rail/search-card'
 import { createRecentsCard, type RecentRoute } from '@/rail/recents-card'
 import { createBriefingCard, type BriefingPreview } from '@/rail/briefing-card'
+import { createSavedCard } from '@/rail/saved-card'
+import { useSavedStore } from '@/store/saved-store'
 import { MapsSheet, type SheetDetent, type SheetTab } from '@/sheet/maps-sheet'
 import { createStepsTab, type RouteStep } from '@/sheet/steps-tab'
 import { createProfileTab } from '@/sheet/profile-tab'
@@ -46,6 +48,7 @@ export function createMapsPage(
   const SearchCard = createSearchCard(Shared)
   const RecentsCard = createRecentsCard(Shared)
   const BriefingCard = createBriefingCard(Shared)
+  const SavedCard = createSavedCard(Shared)
   const StepsTab = createStepsTab(Shared)
   const ProfileTab = createProfileTab(Shared)
 
@@ -65,10 +68,14 @@ export function createMapsPage(
     const engineErrorRef = useRef<string | null>(null)
     const enginePhaseRef = useRef<string>('')
 
-    // Hydrate persisted settings on mount. The store guards against
-    // double-hydration, so a fast re-render won't refire the IPC.
+    const saved = useSavedStore()
+
+    // Hydrate persisted settings + saved destinations on mount. Each
+    // store guards against double-hydration so a fast re-render won't
+    // refire the underlying IPC.
     useEffect(() => {
       void settings.hydrate(api)
+      void saved.hydrate(api)
     }, [])
 
     // Pre-warm the routing engine. Non-fatal failure — the user can
@@ -163,6 +170,13 @@ export function createMapsPage(
               <BriefingCard preview={briefingPreview} />
               <RailSection title="Search">
                 <SearchCard />
+              </RailSection>
+              <RailSection title="Saved">
+                <SavedCard
+                  destinations={saved.destinations}
+                  onReorder={(from, to) => void saved.reorder(api, from, to)}
+                  onRemove={(id) => void saved.remove(api, id)}
+                />
               </RailSection>
               <RailSection title="Recents">
                 <RecentsCard recents={recents} />
