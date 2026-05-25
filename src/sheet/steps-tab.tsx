@@ -104,12 +104,16 @@ export function createStepsTab(Shared: SharedDependencies) {
                 font: 'inherit',
                 transition: 'background var(--kmaps-dur-base) ease',
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgb(var(--kmaps-fg) / 0.05)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent'
-              }}
+              // Apply the same background highlight on pointer hover and
+              // keyboard focus so keyboard-only users get a visible
+              // indicator (WCAG 2.4.7 Focus Visible). The :focus-visible
+              // outline from `.kmaps-root *:focus-visible` in styles.css
+              // also fires, but we want the row background to match the
+              // hover affordance for parity.
+              onMouseEnter={highlightRow}
+              onMouseLeave={resetRow}
+              onFocus={highlightRow}
+              onBlur={resetRow}
             >
               <StepIcon Shared={Shared} iconName={step.iconName} />
               <span
@@ -143,6 +147,14 @@ export function createStepsTab(Shared: SharedDependencies) {
   }
 
   return StepsTab
+}
+
+function highlightRow(e: React.SyntheticEvent<HTMLButtonElement>): void {
+  e.currentTarget.style.background = 'rgb(var(--kmaps-fg) / 0.05)'
+}
+
+function resetRow(e: React.SyntheticEvent<HTMLButtonElement>): void {
+  e.currentTarget.style.background = 'transparent'
 }
 
 const StepIcon: FC<{ Shared: SharedDependencies; iconName?: string }> = ({ Shared, iconName }) => {

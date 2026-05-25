@@ -51,7 +51,15 @@ function detentPx(d: SheetDetent): number {
   }
 }
 
-/** Snap a free-dragged pixel height to the nearest detent. */
+/** Snap a free-dragged pixel height to the nearest detent.
+ *
+ *  Tie-break order is `half` → `peek` → `full`. The convention in sheet
+ *  UIs (Apple Maps, Material You) is to bias toward the middle detent
+ *  on ties so the user lands on the half state — which is the most
+ *  useful for both glancing at content and seeing the map — when they
+ *  release at a midpoint between detents. Checking `peek` or `full`
+ *  first would let those win ties and make `half` unreachable except
+ *  by exact aim. */
 function snap(px: number): SheetDetent {
   const peek = detentPx('peek')
   const half = detentPx('half')
@@ -60,9 +68,9 @@ function snap(px: number): SheetDetent {
   const dHalf = Math.abs(px - half)
   const dFull = Math.abs(px - full)
   const min = Math.min(dPeek, dHalf, dFull)
+  if (min === dHalf) return 'half'
   if (min === dPeek) return 'peek'
-  if (min === dFull) return 'full'
-  return 'half'
+  return 'full'
 }
 
 function nextDetent(d: SheetDetent, dir: 1 | -1): SheetDetent {
@@ -80,6 +88,12 @@ interface DragState {
 /** Pixels of movement below which a pointer-up is treated as a tap
  *  rather than a snap-to-nearest-detent. */
 const TAP_THRESHOLD = 6
+
+/** DOM ids for the ARIA tabs / tabpanel relationship. Centralised so
+ *  the tab button (`aria-controls`) and the panel (`aria-labelledby`)
+ *  always refer to the same names. */
+const tabButtonId = (id: SheetTab): string => `kmaps-sheet-tab-${id}`
+const tabPanelId = (id: SheetTab): string => `kmaps-sheet-panel-${id}`
 
 export const MapsSheet: FC<MapsSheetProps> = ({
   detent,
@@ -205,7 +219,10 @@ export const MapsSheet: FC<MapsSheetProps> = ({
                 key={t.id}
                 type="button"
                 role="tab"
+                id={tabButtonId(t.id)}
+                aria-controls={tabPanelId(t.id)}
                 aria-selected={tab === t.id}
+                tabIndex={tab === t.id ? 0 : -1}
                 className="kmaps-sheet-tab"
                 data-active={tab === t.id ? 'true' : 'false'}
                 onClick={() => onTabChange(t.id)}
@@ -215,8 +232,28 @@ export const MapsSheet: FC<MapsSheetProps> = ({
             ))}
           </div>
           <div className="kmaps-sheet-body">
-            {tab === 'steps' ? steps : null}
-            {tab === 'profile' ? profile : null}
+            {/* Both panels are present in the DOM so assistive tech can
+             *  walk the tab/panel relationship and so the `aria-controls`
+             *  references on the tab buttons resolve regardless of which
+             *  panel is currently active. Inactive panels are `hidden`
+             *  rather than unmounted — the empty-state bodies are cheap
+             *  and the DOM/AX-tree stability matters more here. */}
+            <div
+              role="tabpanel"
+              id={tabPanelId('steps')}
+              aria-labelledby={tabButtonId('steps')}
+              hidden={tab !== 'steps'}
+            >
+              {steps}
+            </div>
+            <div
+              role="tabpanel"
+              id={tabPanelId('profile')}
+              aria-labelledby={tabButtonId('profile')}
+              hidden={tab !== 'profile'}
+            >
+              {profile}
+            </div>
           </div>
         </>
       ) : null}
