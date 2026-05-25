@@ -197,18 +197,7 @@ export function createMapsPage(
     // and a memo would just hide the dependencies.
     const resolveFrom = (): RouteFromPoint | null => {
       if (fromOverride) return fromOverride
-      if (!activeRegionId) return null
-      const region = STARTER_REGIONS.find((r) => r.id === activeRegionId)
-      if (!region) {
-        api.log.warn(`route: no region definition for ${activeRegionId}`)
-        return null
-      }
-      const [west, south, east, north] = region.bbox
-      return {
-        name: 'Region center',
-        lat: (south + north) / 2,
-        lon: (west + east) / 2,
-      }
+      return regionCenter(activeRegionId, api)
     }
 
     const resolvedFrom = resolveFrom()
@@ -231,29 +220,23 @@ export function createMapsPage(
       const dest = route.preview?.destination
       if (!dest || !activeRegionId) return
       // Recompute the effective from with the NEW override applied —
-      // can't use the stale `resolvedFrom` above because state
-      // setters are async. If the user cleared the override (point
-      // === null), this falls through to the region-center default.
-      const region = STARTER_REGIONS.find((r) => r.id === activeRegionId)
-      if (!region) return
-      const [west, south, east, north] = region.bbox
-      const effectiveFrom =
-        point ?? {
-          name: 'Region center',
-          lat: (south + north) / 2,
-          lon: (west + east) / 2,
-        }
+      // can't use the stale `resolvedFrom` above because `setFromOverride`
+      // is async. If the user cleared the override (point === null),
+      // `regionCenter()` provides the fallback. If `regionCenter` also
+      // returns null (no region match), there's nothing to recalc
+      // against so bail.
+      const effectiveFrom = point ?? regionCenter(activeRegionId, api)
+      if (!effectiveFrom) return
       const profile = settingsProfileToRoute(settings.profile)
       void route.setPreview(api, activeRegionId, effectiveFrom, profile, dest)
     }
 
-    // Route card → set destination. Same shape as the SearchCard
-    // path so both entry points funnel through the route store.
-    const handleChangeTo = (dest: SearchSuggestion) => {
-      if (!activeRegionId || !resolvedFrom) return
-      const profile = settingsProfileToRoute(settings.profile)
-      void route.setPreview(api, activeRegionId, resolvedFrom, profile, dest)
-    }
+    // Route card → set destination. Same wiring as the SearchCard path
+    // — both entry points funnel through `handleSelectDestination` so a
+    // future divergence (e.g. extra validation for Route-card-entered
+    // destinations) can't accidentally apply to one path and miss the
+    // other.
+    const handleChangeTo = handleSelectDestination
 
     // Route card → swap from + to and recalculate. The destination
     // becomes the new from; the old from becomes the destination.
@@ -387,6 +370,28 @@ export function createMapsPage(
   }
 
   return MapsPage
+}
+
+/** Region-center fallback "from" point. The v3.0 stand-in for the
+ *  live GPS fix that arrives in v3.1. Returns null when there's no
+ *  active region OR when the region id doesn't match a manifest
+ *  entry (caller should treat null as "can't route from here"). */
+function regionCenter(
+  regionId: string | null,
+  api: PluginAPI,
+): RouteFromPoint | null {
+  if (!regionId) return null
+  const region = STARTER_REGIONS.find((r) => r.id === regionId)
+  if (!region) {
+    api.log.warn(`route: no region definition for ${regionId}`)
+    return null
+  }
+  const [west, south, east, north] = region.bbox
+  return {
+    name: 'Region center',
+    lat: (south + north) / 2,
+    lon: (west + east) / 2,
+  }
 }
 
 /** Map the settings store's profile name to the routing store's

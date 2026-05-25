@@ -19,7 +19,13 @@
  *
  * Editing model:
  *   - One useGeocoder hook drives the suggestions panel, parameterised
- *     by whichever field is currently being edited.
+ *     by whichever field is currently being edited. Using one hook
+ *     instead of one-per-field keeps RouteCard at a single open
+ *     `places.db` handle. The host's per-plugin SearchCard already
+ *     keeps a second one open, so the active total while the rail is
+ *     mounted is two handles — not the three a per-field hook would
+ *     require, but also not the one-handle ideal. A future slice can
+ *     dedupe across cards via a module-level shared connection.
  *   - Click an input → that field becomes editable, draft initialised
  *     to the current name. Type → suggestions populate. Click a
  *     suggestion → commit + close. Click outside the card → revert.
