@@ -144,7 +144,7 @@ export function createMapsPage(
           <RouteRail>
             <BriefingCard preview={briefingPreview} />
             <RailSection title="Search">
-              <SearchCard hasActiveRegion={hasActiveRegion} />
+              <SearchCard />
             </RailSection>
             <RailSection title="Recents">
               <RecentsCard recents={recents} />

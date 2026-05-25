@@ -47,7 +47,10 @@ export function createBriefingCard(Shared: SharedDependencies) {
         <div className="kmaps-briefing-headline">
           {preview.distanceLabel} · {preview.durationLabel}
         </div>
-        <div className="kmaps-briefing-sub">{preview.profileLabel}</div>
+        {/* Subtitle slot is reserved for a non-headline summary line
+         *  (e.g. "Arrive at 5:42 PM" once ETA lands in v3.1, or a
+         *  short route description). Profile lives in the chip row
+         *  below so we don't render the same string twice. */}
         <div className="kmaps-briefing-chips">
           <span className="kmaps-chip kmaps-chip-accent">{preview.profileLabel}</span>
           {preview.warningLabel ? (

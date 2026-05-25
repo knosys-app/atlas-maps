@@ -46,39 +46,47 @@ export function createRouteRail(Shared: SharedDependencies) {
     const [open, setOpen] = useShared(Shared, defaultOpen)
     const effectiveOpen = collapsible ? open : true
 
+    const headerStyle = {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: 0,
+      background: 'none',
+      border: 'none',
+      color: 'inherit',
+    } as const
+
     return (
       <section className="kmaps-rail-card">
         {title ? (
           <div className="kmaps-rail-card-header">
-            <button
-              type="button"
-              className="kmaps-label-caps"
-              onClick={() => {
-                if (collapsible) setOpen(!open)
-              }}
-              disabled={!collapsible}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: 0,
-                background: 'none',
-                border: 'none',
-                cursor: collapsible ? 'pointer' : 'default',
-                color: 'inherit',
-              }}
-            >
-              {collapsible && ChevronDown ? (
-                <ChevronDown
-                  className="w-3 h-3"
-                  style={{
-                    transition: 'transform 180ms var(--kmaps-spring-b)',
-                    transform: effectiveOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
-                  }}
-                />
-              ) : null}
-              {title}
-            </button>
+            {collapsible ? (
+              <button
+                type="button"
+                className="kmaps-label-caps"
+                onClick={() => setOpen(!open)}
+                style={{ ...headerStyle, cursor: 'pointer' }}
+              >
+                {ChevronDown ? (
+                  <ChevronDown
+                    className="w-3 h-3"
+                    style={{
+                      transition: 'transform 180ms var(--kmaps-spring-b)',
+                      transform: effectiveOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
+                    }}
+                  />
+                ) : null}
+                {title}
+              </button>
+            ) : (
+              // Static labels render as a `<span>` rather than a
+              // `<button disabled>` — disabled buttons are non-focusable
+              // and announced as "dimmed" by screen readers, which is
+              // semantically wrong for a non-interactive title.
+              <span className="kmaps-label-caps" style={headerStyle}>
+                {title}
+              </span>
+            )}
             {action ?? null}
           </div>
         ) : null}

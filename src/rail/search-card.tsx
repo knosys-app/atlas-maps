@@ -1,18 +1,16 @@
 /**
  * Search card — destination geocoder input.
  *
- * The body currently shows an "install a region" affordance because
- * the geocoder reader (slice 5) requires a region's `places.db` to be
- * on disk. Once at least one region is installed, this card will fan
- * out to:
+ * Only mounted when at least one region is installed (`maps-page.tsx`
+ * gates the entire rail behind `hasActiveRegion`), so the card itself
+ * doesn't carry a defensive branch for the pre-region case — the outer
+ * gate is authoritative. Removed in response to Greptile flagging the
+ * inner branch as dead code.
  *
- *   - Local FTS5 search across the region's `places` table (cities,
- *     POIs, addresses)
- *   - Nominatim fallback when local hits < 3 and `navigator.onLine`
- *   - Strip-house-number retry for "123 Pike St" → "Pike St"
- *
- * For this slice the card only stands up the input UI + suggestions
- * dropdown shell. The `onSelectDestination` callback is a no-op placeholder.
+ * Backend status: the 3-tier search (FTS5 → Nominatim → strip-#) and
+ * the result list rendering land with slice 5 once the geocoder
+ * reader is wired. For now this is the input shell + a status
+ * placeholder when the user has typed something.
  */
 
 import type { FC } from 'react'
@@ -28,9 +26,6 @@ export interface SearchSuggestion {
 }
 
 export interface SearchCardProps {
-  /** True when at least one region is installed. Drives whether the
-   *  search input is enabled or shows the install-a-region inline state. */
-  hasActiveRegion: boolean
   onSelectDestination?: (s: SearchSuggestion) => void
 }
 
@@ -40,39 +35,11 @@ export function createSearchCard(Shared: SharedDependencies) {
   const icons = Shared.lucideIcons as Record<string, FC<{ className?: string; style?: object }>>
   const { Search } = icons
 
-  const SearchCard: FC<SearchCardProps> = ({ hasActiveRegion, onSelectDestination }) => {
-    const [query, setQuery] = Shared.useState('')
+  // onSelectDestination is exposed in props so slice 5 can wire it
+  // without changing the contract; not yet referenced in render.
 
-    if (!hasActiveRegion) {
-      // Pre-region state: explain why search is disabled rather than
-      // hiding the card entirely. Keeps the rail layout stable when a
-      // region is later installed.
-      return (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '8px 10px',
-              borderRadius: 'var(--kmaps-r-sm)',
-              background: 'rgb(var(--kmaps-fg) / 0.04)',
-              color: 'rgb(var(--kmaps-fg-muted))',
-              fontSize: 13,
-            }}
-          >
-            {Search ? <Search className="w-4 h-4" /> : null}
-            <span>Install a region to search</span>
-          </div>
-        </div>
-      )
-    }
+  const SearchCard: FC<SearchCardProps> = () => {
+    const [query, setQuery] = Shared.useState('')
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -103,9 +70,14 @@ export function createSearchCard(Shared: SharedDependencies) {
         </div>
 
         {query.length === 0 ? null : (
+          // Until the geocoder lands, this is a status placeholder.
+          // Once slice 5 wires real suggestions the container becomes
+          // a `role="listbox"` containing `role="option"` children —
+          // ARIA requires that pairing, so we don't pre-emptively
+          // claim "listbox" with no options inside.
           <div
-            role="listbox"
-            aria-label="Search suggestions"
+            role="status"
+            aria-live="polite"
             style={{
               borderRadius: 'var(--kmaps-r-sm)',
               background: 'rgb(var(--kmaps-fg) / 0.04)',
@@ -117,11 +89,6 @@ export function createSearchCard(Shared: SharedDependencies) {
             Geocoder lands in slice 5
           </div>
         )}
-
-        {/* Hint: bind the callback so the prop isn't flagged unused while
-         *  the geocoder is still being built. Removed once slice 5 wires
-         *  real result rows. */}
-        {onSelectDestination ? null : null}
       </div>
     )
   }
