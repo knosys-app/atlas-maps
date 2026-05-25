@@ -116,7 +116,15 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
       try {
         const next = await openPlacesDb(api, regionId)
         if (cancelled) {
+          // Close BOTH the freshly-opened handle (we're abandoning
+          // it) AND the previous region's handle (the cancellation
+          // happened before the success branch could swap + close
+          // it). Without closing `prev` here it would leak its main-
+          // process SQLite file descriptor until plugin deactivate,
+          // and the leak would stack on rapid A→B→C region switches
+          // that each cancel the previous open before it resolves.
           void next.close()
+          void prev?.close()
           return
         }
         dbRef.current = next
@@ -128,7 +136,12 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
         setDbVersion((v) => v + 1)
         void prev?.close()
       } catch (err) {
-        if (cancelled) return
+        if (cancelled) {
+          // Cancelled-on-error: still abandoning, so the prior
+          // handle has no consumer left and must be closed.
+          void prev?.close()
+          return
+        }
         api.log.warn(`geocoder: failed to open places.db for ${regionId}`, err)
         setState({ results: [], loading: false, error: 'Region database unavailable' })
         // Close the old handle on the failure path too — we already
