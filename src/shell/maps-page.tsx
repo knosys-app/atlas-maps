@@ -28,6 +28,9 @@ import { createRouteRail } from '@/rail/route-rail'
 import { createSearchCard } from '@/rail/search-card'
 import { createRecentsCard, type RecentRoute } from '@/rail/recents-card'
 import { createBriefingCard, type BriefingPreview } from '@/rail/briefing-card'
+import { MapsSheet, type SheetDetent, type SheetTab } from '@/sheet/maps-sheet'
+import { createStepsTab, type RouteStep } from '@/sheet/steps-tab'
+import { createProfileTab } from '@/sheet/profile-tab'
 import { MapsShell } from './maps-shell'
 import { createPlanPill } from './plan-pill'
 import { createLayersButton } from './layers-button'
@@ -43,6 +46,8 @@ export function createMapsPage(
   const SearchCard = createSearchCard(Shared)
   const RecentsCard = createRecentsCard(Shared)
   const BriefingCard = createBriefingCard(Shared)
+  const StepsTab = createStepsTab(Shared)
+  const ProfileTab = createProfileTab(Shared)
 
   const MapsPage: ComponentType<unknown> = () => {
     const settings = useSettingsStore()
@@ -122,6 +127,18 @@ export function createMapsPage(
     const recents: RecentRoute[] = []
     const hasActiveRegion = activeRegionId !== null
 
+    // Sheet state. Controlled component, lives here so a future
+    // "Open Steps on route preview" effect can call `setSheetDetent`
+    // / `setSheetTab` directly. Initial detent is `peek` so the sheet
+    // starts collapsed and the user opts in by dragging or tapping
+    // the handle.
+    const [sheetDetent, setSheetDetent] = useState<SheetDetent>('peek')
+    const [sheetTab, setSheetTab] = useState<SheetTab>('steps')
+    // Step list comes from the parsed route. Null = no route, so the
+    // Steps tab shows its "Plan a route…" empty state. Slice 3c wires
+    // the route parser into this state.
+    const routeSteps: RouteStep[] | null = null
+
     return (
       <MapsShell map={mapLayer}>
         <PlanPill
@@ -136,20 +153,31 @@ export function createMapsPage(
           }}
         />
 
-        {/* Rail hidden until at least one region is installed. The empty
-         *  state owns the screen pre-install (matches Apple Maps'
-         *  progressive-reveal pattern); rail appears once the user has
-         *  a region they can search / route against. */}
+        {/* Rail + Sheet hidden until at least one region is installed.
+         *  The empty state owns the screen pre-install (Apple Maps
+         *  progressive-reveal pattern); rail + sheet appear once the
+         *  user has a region they can search / route against. */}
         {hasActiveRegion ? (
-          <RouteRail>
-            <BriefingCard preview={briefingPreview} />
-            <RailSection title="Search">
-              <SearchCard />
-            </RailSection>
-            <RailSection title="Recents">
-              <RecentsCard recents={recents} />
-            </RailSection>
-          </RouteRail>
+          <>
+            <RouteRail>
+              <BriefingCard preview={briefingPreview} />
+              <RailSection title="Search">
+                <SearchCard />
+              </RailSection>
+              <RailSection title="Recents">
+                <RecentsCard recents={recents} />
+              </RailSection>
+            </RouteRail>
+
+            <MapsSheet
+              detent={sheetDetent}
+              onDetentChange={setSheetDetent}
+              tab={sheetTab}
+              onTabChange={setSheetTab}
+              steps={<StepsTab steps={routeSteps} />}
+              profile={<ProfileTab />}
+            />
+          </>
         ) : null}
 
         <LayersButton
