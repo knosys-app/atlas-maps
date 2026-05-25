@@ -147,7 +147,14 @@ const SavedRow: FC<SavedRowProps> = ({ dest, Grip, Remove, onSelect, onRemove })
         padding: '8px 6px 8px 8px',
         borderRadius: 'var(--kmaps-r-sm)',
         background: isDragging ? 'rgb(var(--kmaps-fg) / 0.05)' : 'transparent',
-        transitionProperty: `${style.transition ?? ''}, background var(--kmaps-dur-base) ease`,
+        // Use the `transition` shorthand (`property duration timing`),
+        // NOT the `transition-property` longhand which accepts names
+        // only. Concatenating with dnd-kit's own transition string;
+        // skip its half (and the leading comma) when dnd-kit didn't
+        // supply one — happens on rows that aren't being dragged.
+        transition: style.transition
+          ? `${style.transition}, background var(--kmaps-dur-base) ease`
+          : 'background var(--kmaps-dur-base) ease',
       }}
     >
       <button

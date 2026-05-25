@@ -24,6 +24,23 @@ import { create } from 'zustand'
 import type { Destination, PluginAPI } from '@/types'
 import { PLUGIN_ID, VAULT_PATHS } from '@/constants'
 
+/**
+ * Monotonic counter bumped at the start of every mutation (add /
+ * remove / reorder). `hydrate` snapshots it before its async vault
+ * read and compares after — any change means a mutation interleaved
+ * with the read and the in-memory state is authoritative (the mutator
+ * already persisted to vault before this read resolved, OR is about
+ * to). The previous length-based check missed the "remove emptied
+ * the list" case because an empty in-memory list is indistinguishable
+ * from the pre-hydrate initial state.
+ *
+ * Module-scoped, not store state — Zustand's snapshot semantics
+ * would freeze the value at render time, but the gen counter needs
+ * to reflect the latest mutation regardless of which render observed
+ * it. Module scope is fine because the store itself is a singleton.
+ */
+let mutationGen = 0
+
 interface SavedStore {
   destinations: Destination[]
   /** True after the first vault read settles — drives skeleton vs.
@@ -53,6 +70,14 @@ export const useSavedStore = create<SavedStore>((set, get) => ({
 
   async hydrate(api: PluginAPI) {
     if (get().hydrated) return
+    // Snapshot the mutation generation BEFORE the async read so any
+    // add / remove / reorder that runs while we're awaiting will be
+    // detectable on the other side. A length-based check (the
+    // previous approach) missed the case where `remove` cleared the
+    // last destination during a read — the empty in-memory list was
+    // indistinguishable from the pre-hydrate initial state, so the
+    // stale vault contents un-deleted the row.
+    const startGen = mutationGen
     try {
       const exists = await api.vault.exists(VAULT_PATHS.destinations)
       if (!exists) {
@@ -62,15 +87,15 @@ export const useSavedStore = create<SavedStore>((set, get) => ({
       const text = await api.vault.readFile(VAULT_PATHS.destinations)
       const parsed: unknown = JSON.parse(text)
       const destinations = parseDestinations(parsed)
-      // Functional `set` so any in-flight `add`/`remove`/`reorder`
-      // call that committed during the async vault read is preserved
-      // (same hydrate-race fix as settings-store.ts). On first load
-      // `current.destinations` will be `[]` and the stored value
-      // wins; after concurrent mutation, the current value wins on
-      // length mismatch.
+      // Functional set so the gen check is atomic with respect to
+      // any mutation that races the read resolve.
       set((current) => {
-        if (current.destinations.length > 0) {
-          // User added something while we were reading — keep theirs.
+        if (mutationGen !== startGen) {
+          // A mutation ran during the await — its optimistic set is
+          // already in `current` AND it persisted (or is persisting)
+          // its own value to vault. Either way the in-memory state
+          // is authoritative; the stored snapshot we just read is
+          // stale relative to the mutator.
           return { ...current, hydrated: true }
         }
         return { destinations, hydrated: true }
@@ -94,6 +119,7 @@ export const useSavedStore = create<SavedStore>((set, get) => ({
       updatedAt: now,
     }
     const prev = get().destinations
+    mutationGen++
     set({ destinations: [...prev, dest] })
     try {
       await persist(api, get().destinations)
@@ -108,6 +134,7 @@ export const useSavedStore = create<SavedStore>((set, get) => ({
     const prev = get().destinations
     const next = prev.filter((d) => d.id !== id)
     if (next.length === prev.length) return // no-op; id not found
+    mutationGen++
     set({ destinations: next })
     try {
       await persist(api, next)
@@ -125,6 +152,7 @@ export const useSavedStore = create<SavedStore>((set, get) => ({
     const next = [...prev]
     const [moved] = next.splice(fromIndex, 1)
     next.splice(toIndex, 0, moved)
+    mutationGen++
     set({ destinations: next })
     try {
       await persist(api, next)
