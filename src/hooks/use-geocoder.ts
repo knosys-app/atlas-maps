@@ -63,6 +63,13 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
   // checks this before committing its results so newer responses
   // always win.
   const requestIdRef = useRef(0)
+  // Bumps every time `openPlacesDb` resolves successfully. The
+  // search effect depends on it so a query that lands during an
+  // in-flight DB open (set itself to loading + bailed) re-runs
+  // once the DB is ready — without this, `dbRef.current = next`
+  // would be a silent ref mutation and the search effect would
+  // never wake up, leaving the row stuck in `loading: true`.
+  const [dbVersion, setDbVersion] = useState(0)
 
   // Open / close the DB on region change. Closing the previous DB
   // matters because each handle holds an open SQLite connection in
@@ -103,6 +110,11 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
         }
         dbRef.current = next
         dbRegionRef.current = regionId
+        // Bump the version state so the search effect re-runs and
+        // can now see the opened DB. Without this, a query that
+        // landed while the DB was opening would stay stuck in
+        // loading because nothing else would trigger a re-render.
+        setDbVersion((v) => v + 1)
         void prev?.close()
       } catch (err) {
         if (cancelled) return
@@ -149,8 +161,10 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
 
     if (regionId === null || dbRef.current === null) {
       // Either no region active, or the new region's DB is still
-      // opening. Show a loading state until the DB resolves, at
-      // which point the next render will re-run this effect.
+      // opening. Show a loading state until the DB resolves; the
+      // open-success path bumps `dbVersion`, which is in this
+      // effect's deps below — that's what wakes the effect back
+      // up so the query can actually dispatch.
       setState((s) => ({ ...s, loading: regionId !== null }))
       return
     }
@@ -187,7 +201,7 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
     }, SEARCH_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)
-  }, [api, regionId, query, near?.lat, near?.lon])
+  }, [api, regionId, query, near?.lat, near?.lon, dbVersion])
 
   return state
 }
