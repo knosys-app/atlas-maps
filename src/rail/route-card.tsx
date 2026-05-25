@@ -323,7 +323,20 @@ export function createRouteCard(Shared: SharedDependencies) {
             ariaLabel="Origin"
             onFocus={() => startEditing('from')}
             onChange={setFromDraft}
-            onClear={showClearFrom ? () => onChangeFrom(null) : undefined}
+            onClear={
+              showClearFrom
+                ? () => {
+                    // The × button lives inside the focus-within
+                    // container so blur from the input → × doesn't
+                    // teardown the editing session. Cancel explicitly
+                    // before resetting the override — otherwise the
+                    // From input keeps rendering the user's draft
+                    // text instead of the new "Region center" default.
+                    cancelEditing()
+                    onChangeFrom(null)
+                  }
+                : undefined
+            }
             onKeyDown={handleKeyDown}
             style={{ gridRow: 1, gridColumn: 1 }}
           />
@@ -341,7 +354,16 @@ export function createRouteCard(Shared: SharedDependencies) {
           />
           <button
             type="button"
-            onClick={onSwap}
+            onClick={() => {
+              // Cancel the in-flight editing session before delegating
+              // to the parent. The swap button lives inside the focus-
+              // within container so `handleBlur`'s relatedTarget guard
+              // keeps the editing session alive — which would otherwise
+              // leave `editingField` set and the input rendering its
+              // stale draft text after the parent swaps from/to.
+              cancelEditing()
+              onSwap()
+            }}
             disabled={!canSwap}
             aria-label="Swap from and to"
             title="Swap from and to"
@@ -411,7 +433,13 @@ export function createRouteCard(Shared: SharedDependencies) {
 
         <button
           type="button"
-          onClick={onRecalc}
+          onClick={() => {
+            // Same focus-within story as the swap button — clicking
+            // Recalc mid-edit shouldn't leave the input rendering
+            // stale draft text or the suggestions panel open.
+            cancelEditing()
+            onRecalc()
+          }}
           disabled={!canRecalc}
           style={{
             padding: '8px 12px',
