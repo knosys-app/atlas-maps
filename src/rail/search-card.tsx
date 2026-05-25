@@ -74,6 +74,12 @@ export function createSearchCard(Shared: SharedDependencies) {
     // success path on a row clears that row's id from the Set;
     // failure on another row leaves both highlighted independently.
     const [saveErrorIds, setSaveErrorIds] = useState<Set<string>>(() => new Set())
+    // Track which rows have a save in flight so a rapid double-click
+    // can't fire two `saved.add` calls in parallel. `saved.add`
+    // generates a fresh `cryptoRandomId` per call, so without this
+    // guard two parallel calls would each commit a separate entry
+    // and the user would end up with duplicates.
+    const [savingIds, setSavingIds] = useState<Set<string>>(() => new Set())
 
     const handleSelect = (r: PlaceResult) => {
       onSelectDestination?.({
@@ -87,12 +93,23 @@ export function createSearchCard(Shared: SharedDependencies) {
 
     const handleSave = async (r: PlaceResult) => {
       const id = stableId(r)
+      // Drop redundant clicks while this row's save is in flight.
+      // The button is also disabled via `disabled={savingIds.has(id)}`
+      // below, but checking here too defends against synthesized
+      // click events that bypass the disabled attribute (e.g. some
+      // keyboard accessibility wrappers).
+      if (savingIds.has(id)) return
       // Clear THIS row's prior error (if any) on retry — leave other
       // rows' errors intact.
       setSaveErrorIds((prev) => {
         if (!prev.has(id)) return prev
         const next = new Set(prev)
         next.delete(id)
+        return next
+      })
+      setSavingIds((prev) => {
+        const next = new Set(prev)
+        next.add(id)
         return next
       })
       try {
@@ -109,6 +126,13 @@ export function createSearchCard(Shared: SharedDependencies) {
         setSaveErrorIds((prev) => {
           const next = new Set(prev)
           next.add(id)
+          return next
+        })
+      } finally {
+        setSavingIds((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
           return next
         })
       }
@@ -153,6 +177,7 @@ export function createSearchCard(Shared: SharedDependencies) {
             iconFor={iconFor}
             Star={Star}
             saveErrorIds={saveErrorIds}
+            savingIds={savingIds}
             onSelect={handleSelect}
             onSave={handleSave}
           />
@@ -171,6 +196,7 @@ interface ResultsPanelProps {
   iconFor: (c: PlaceCategory) => FC<{ className?: string; style?: object }> | null
   Star?: FC<{ className?: string; style?: object }>
   saveErrorIds: Set<string>
+  savingIds: Set<string>
   onSelect: (r: PlaceResult) => void
   onSave: (r: PlaceResult) => void
 }
@@ -182,6 +208,7 @@ const ResultsPanel: FC<ResultsPanelProps> = ({
   iconFor,
   Star,
   saveErrorIds,
+  savingIds,
   onSelect,
   onSave,
 }) => {
@@ -261,6 +288,7 @@ const ResultsPanel: FC<ResultsPanelProps> = ({
         const id = stableId(r)
         const Icon = iconFor(r.category)
         const failed = saveErrorIds.has(id)
+        const saving = savingIds.has(id)
         return (
           <li
             key={id}
@@ -326,8 +354,16 @@ const ResultsPanel: FC<ResultsPanelProps> = ({
             <button
               type="button"
               onClick={() => onSave(r)}
+              disabled={saving}
+              aria-busy={saving || undefined}
               aria-label={`Save ${r.name}`}
-              title={failed ? 'Save failed — try again' : 'Save destination'}
+              title={
+                saving
+                  ? 'Saving…'
+                  : failed
+                  ? 'Save failed — try again'
+                  : 'Save destination'
+              }
               style={{
                 width: 24,
                 height: 24,
@@ -337,23 +373,23 @@ const ResultsPanel: FC<ResultsPanelProps> = ({
                 color: failed
                   ? 'rgb(var(--kmaps-danger))'
                   : 'rgb(var(--kmaps-fg-muted))',
-                cursor: 'pointer',
+                cursor: saving ? 'progress' : 'pointer',
                 borderRadius: 'var(--kmaps-r-sm)',
                 display: 'grid',
                 placeItems: 'center',
-                opacity: failed ? 1 : 0.7,
+                opacity: saving ? 0.4 : failed ? 1 : 0.7,
               }}
               onMouseEnter={(e) => {
-                if (!failed) e.currentTarget.style.opacity = '1'
+                if (!failed && !saving) e.currentTarget.style.opacity = '1'
               }}
               onMouseLeave={(e) => {
-                if (!failed) e.currentTarget.style.opacity = '0.7'
+                if (!failed && !saving) e.currentTarget.style.opacity = '0.7'
               }}
               onFocus={(e) => {
-                if (!failed) e.currentTarget.style.opacity = '1'
+                if (!failed && !saving) e.currentTarget.style.opacity = '1'
               }}
               onBlur={(e) => {
-                if (!failed) e.currentTarget.style.opacity = '0.7'
+                if (!failed && !saving) e.currentTarget.style.opacity = '0.7'
               }}
             >
               {Star ? <Star className="w-4 h-4" /> : null}
