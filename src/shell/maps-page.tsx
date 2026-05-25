@@ -123,12 +123,19 @@ export function createMapsPage(
     }
 
     // Compose the map layer. The MapViewer mounts MapLibre with the
-    // active region's PMTiles (null until slice 6). The EmptyState
+    // active region's PMTiles (null until slice 6) and the route-line
+    // GeoJSON source driven by the current preview. The EmptyState
     // overlays the canvas whenever no region is active — covers both
     // the fresh-install case and the "all regions deleted" case.
+    const routeGeometry = route.preview?.route?.geometry ?? null
     const mapLayer = (
       <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-        <MapViewer api={api} regionId={activeRegionId} pmtilesUrl={pmtilesUrl} />
+        <MapViewer
+          api={api}
+          regionId={activeRegionId}
+          pmtilesUrl={pmtilesUrl}
+          routeGeometry={routeGeometry}
+        />
         {activeRegionId === null ? (
           <EmptyState onInstallRegion={handleInstallRegion} />
         ) : null}
