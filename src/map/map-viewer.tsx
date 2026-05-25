@@ -38,6 +38,13 @@ import {
 import { ensureMaplibreWorker } from './maplibre-worker-setup'
 import { buildPlanetStyle, currentMapTheme } from './style-config'
 import { loadViewport, saveViewport } from '@/store/viewport-store'
+import {
+  addRouteLineLayer,
+  setRouteLineData,
+  computeRouteBounds,
+  ROUTE_LINE_MAIN_LAYER_ID,
+  type RouteLineGeometry,
+} from './layers/route-line-layer'
 
 export interface MapViewerProps {
   api: PluginAPI
@@ -48,9 +55,13 @@ export interface MapViewerProps {
   /** Vault path to the active region's PMTiles archive. Null when no
    *  region is installed; renders an empty MapLibre canvas. */
   pmtilesUrl: string | null
+  /** GeoJSON LineString of the currently-previewed route, or null
+   *  when there's no active preview. Sourced from
+   *  `route.preview?.route?.geometry`. */
+  routeGeometry: RouteLineGeometry | null
 }
 
-export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl }) => {
+export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, routeGeometry }) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MaplibreMap | null>(null)
   // Latest regionId / pmtilesUrl — read inside the mount IIFE + the
@@ -65,6 +76,17 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl }) => 
   regionIdRef.current = regionId
   const pmtilesUrlRef = useRef(pmtilesUrl)
   pmtilesUrlRef.current = pmtilesUrl
+  // Route geometry tracked via ref so the `style.load` permanent
+  // handler (registered once at mount) can always read the current
+  // value without stale-closure issues. Same pattern as regionId /
+  // pmtilesUrl above.
+  const routeGeometryRef = useRef(routeGeometry)
+  routeGeometryRef.current = routeGeometry
+  // Previous route geometry used to detect null → present transitions
+  // for the bounds-fit. Updated by both the `load` handler (covers
+  // the case where a route is already set when the map mounts) and
+  // the routeGeometry useEffect below.
+  const prevRouteRef = useRef<RouteLineGeometry | null>(null)
 
   // Mount MapLibre once. The map instance lives for the lifetime of
   // the MapViewer component; style + tile source swaps happen through
@@ -122,6 +144,34 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl }) => 
         }, 500)
       })
 
+      // Re-add the route layer on every style load. `style.load`
+      // fires after the initial mount AND after every setStyle call
+      // (theme switch, region swap). setStyle wipes non-style
+      // sources + layers, so the route line vanishes without this
+      // permanent listener. addRouteLineLayer is idempotent so the
+      // initial-load case doesn't double-add.
+      map.on('style.load', () => {
+        addRouteLineLayer(map)
+        setRouteLineData(map, routeGeometryRef.current)
+      })
+
+      // Initial bounds-fit. Covers the case where a route is already
+      // previewed when the map mounts (e.g. user navigates away
+      // mid-route + comes back). Subsequent route transitions are
+      // handled by the useEffect below — this handler is one-shot,
+      // and seeds prevRouteRef so the effect's first run doesn't
+      // double-fit.
+      map.once('load', () => {
+        const g = routeGeometryRef.current
+        prevRouteRef.current = g
+        if (g && g.coordinates.length > 0) {
+          const bounds = computeRouteBounds(g.coordinates)
+          if (bounds) {
+            map.fitBounds(bounds, { padding: 80, duration: 800 })
+          }
+        }
+      })
+
       mapRef.current = map
     })()
 
@@ -144,6 +194,37 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl }) => 
     const theme = currentMapTheme()
     map.setStyle(buildPlanetStyle(pmtilesUrl, theme))
   }, [pmtilesUrl])
+
+  // Push route-line geometry updates after the map exists. Skips when
+  // the layer hasn't been added yet (initial-load hasn't fired) — in
+  // that case the `style.load` handler in the mount IIFE picks up
+  // `routeGeometryRef.current` and writes the latest value when the
+  // style finishes loading, so nothing's lost. Bounds-fit only on
+  // null → present transitions; recalcs against the same destinations
+  // don't bounce the camera.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!map.getLayer(ROUTE_LINE_MAIN_LAYER_ID)) {
+      // Don't touch prevRouteRef here. The `load` handler decides
+      // whether the initial fit fires based on the value at load
+      // time; if we updated prevRouteRef before load, a null→A→B
+      // sequence that all lands pre-load would lose the fit.
+      return
+    }
+    setRouteLineData(map, routeGeometry)
+    if (
+      routeGeometry &&
+      !prevRouteRef.current &&
+      routeGeometry.coordinates.length > 0
+    ) {
+      const bounds = computeRouteBounds(routeGeometry.coordinates)
+      if (bounds) {
+        map.fitBounds(bounds, { padding: 80, duration: 800 })
+      }
+    }
+    prevRouteRef.current = routeGeometry
+  }, [routeGeometry])
 
   // React to system / Knosys appearance changes. Re-runs the theme
   // resolver and swaps the style flavor without dropping the camera.
