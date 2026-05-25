@@ -106,6 +106,30 @@ export const useSavedStore = create<SavedStore>((set, get) => ({
     }
   },
 
+  // Rollback strategy (`add` / `remove` / `reorder`):
+  //   Each mutator applies the INVERSE of its own change to the
+  //   current state on persist failure, rather than restoring a
+  //   pre-set snapshot. The snapshot approach (previously used here)
+  //   clobbers any concurrent mutation that committed during the
+  //   failing operation's `await persist`. Worked example:
+  //
+  //     state `[A, B]` → `add(C)` (persist fails) overlaps with
+  //     `remove(B)` (persist succeeds, writes `[A, C]` to vault).
+  //     Snapshot-rollback restores `add`'s captured `prev = [A, B]`,
+  //     un-deleting B and dropping C → memory diverges from vault.
+  //
+  //   Functional inverse handles this case: `add`'s rollback only
+  //   removes the just-added dest from whatever's current; `remove`
+  //   only re-inserts the just-removed dest; `reorder` only swaps
+  //   the moved dest back. Concurrent mutations are preserved.
+  //
+  //   Imperfect under truly adversarial interleavings (e.g. concurrent
+  //   `add` of the same dest, or stale index after a concurrent
+  //   reorder), but the realistic UI patterns won't trigger those —
+  //   the user can only fire one drag-end / click at a time, and the
+  //   only writer is this single Zustand store. Documented in case a
+  //   future test sees post-rollback divergence under fault injection.
+
   async add(api, seed) {
     const now = new Date().toISOString()
     const dest: Destination = {
@@ -118,14 +142,16 @@ export const useSavedStore = create<SavedStore>((set, get) => ({
       createdAt: now,
       updatedAt: now,
     }
-    const prev = get().destinations
     mutationGen++
-    set({ destinations: [...prev, dest] })
+    set((cur) => ({ ...cur, destinations: [...cur.destinations, dest] }))
     try {
       await persist(api, get().destinations)
     } catch (err) {
       api.log.warn('saved: add persist failed, rolling back', err)
-      set({ destinations: prev })
+      set((cur) => ({
+        ...cur,
+        destinations: cur.destinations.filter((d) => d.id !== dest.id),
+      }))
       // Re-throw after rollback so callers don't act on a ghost
       // entry. If slice 3d's Save CTA navigated to Briefing using
       // the returned `dest`, the user would land on an entry that
@@ -136,34 +162,65 @@ export const useSavedStore = create<SavedStore>((set, get) => ({
   },
 
   async remove(api, id) {
-    const prev = get().destinations
-    const next = prev.filter((d) => d.id !== id)
-    if (next.length === prev.length) return // no-op; id not found
+    const current = get().destinations
+    const removedIndex = current.findIndex((d) => d.id === id)
+    if (removedIndex < 0) return // no-op; id not found
+    const removed = current[removedIndex]
     mutationGen++
-    set({ destinations: next })
+    set((cur) => ({
+      ...cur,
+      destinations: cur.destinations.filter((d) => d.id !== id),
+    }))
     try {
-      await persist(api, next)
+      await persist(api, get().destinations)
     } catch (err) {
       api.log.warn('saved: remove persist failed, rolling back', err)
-      set({ destinations: prev })
+      set((cur) => {
+        // Insert the removed item back at its original index. If a
+        // concurrent op shifted the array, clamp to the current
+        // length — the position may not be perfectly accurate but
+        // the destination is at least restored.
+        const next = [...cur.destinations]
+        const insertAt = Math.min(removedIndex, next.length)
+        next.splice(insertAt, 0, removed)
+        return { ...cur, destinations: next }
+      })
     }
   },
 
   async reorder(api, fromIndex, toIndex) {
-    const prev = get().destinations
     if (fromIndex === toIndex) return
-    if (fromIndex < 0 || fromIndex >= prev.length) return
-    if (toIndex < 0 || toIndex >= prev.length) return
-    const next = [...prev]
-    const [moved] = next.splice(fromIndex, 1)
-    next.splice(toIndex, 0, moved)
+    const start = get().destinations
+    if (fromIndex < 0 || fromIndex >= start.length) return
+    if (toIndex < 0 || toIndex >= start.length) return
+    // Capture the moved item by reference so the inverse rollback
+    // can find it by id even if a concurrent op shifted indices.
+    const moved = start[fromIndex]
     mutationGen++
-    set({ destinations: next })
+    set((cur) => {
+      const next = [...cur.destinations]
+      const movedIdx = next.findIndex((d) => d.id === moved.id)
+      if (movedIdx < 0) return cur
+      const [m] = next.splice(movedIdx, 1)
+      const insertAt = Math.min(Math.max(0, toIndex), next.length)
+      next.splice(insertAt, 0, m)
+      return { ...cur, destinations: next }
+    })
     try {
-      await persist(api, next)
+      await persist(api, get().destinations)
     } catch (err) {
       api.log.warn('saved: reorder persist failed, rolling back', err)
-      set({ destinations: prev })
+      set((cur) => {
+        // Inverse move: find the moved item by id (concurrent ops
+        // may have shifted indices) and put it back at fromIndex.
+        const next = [...cur.destinations]
+        const movedIdx = next.findIndex((d) => d.id === moved.id)
+        if (movedIdx < 0) return cur // moved item is gone — nothing to undo
+        const [m] = next.splice(movedIdx, 1)
+        const insertAt = Math.min(Math.max(0, fromIndex), next.length)
+        next.splice(insertAt, 0, m)
+        return { ...cur, destinations: next }
+      })
     }
   },
 }))
