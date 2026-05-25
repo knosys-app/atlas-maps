@@ -29,6 +29,15 @@ export interface RegionMeta {
    *  bytes. Used for the storage-usage indicator without re-walking
    *  the vault on every Settings open. */
   byteSize: number
+  /** Bounding box [west, south, east, north] of the region's coverage.
+   *  Optional in the read path for backwards compatibility — older
+   *  meta.json files predate this field. The orchestrator (slice 6b)
+   *  populates it at install time, mirroring `RegionDefinition.bbox`
+   *  for manifest regions or the user-drawn polygon for custom-bbox
+   *  regions. `regionCenter` in MapsPage prefers this over the
+   *  STARTER_REGIONS lookup so custom (non-manifest) region ids can
+   *  still route + search. */
+  bbox?: [number, number, number, number]
   /** Versions of the various pipeline outputs at build time. Used to
    *  detect when a region is outdated relative to the currently-
    *  installed engine. */
@@ -115,10 +124,13 @@ function isValidMeta(value: unknown): value is RegionMeta {
 }
 
 /** Format `byteSize` as a human label. The display only needs ~1
- *  decimal of precision; SI prefixes (no binary kibibyte gymnastics). */
+ *  decimal of precision; SI prefixes with 1 000-based boundaries
+ *  (KB / MB / GB). Matches what macOS Finder + Windows Explorer
+ *  show for file sizes — users compare against those, not against
+ *  binary kibibyte conventions. */
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+  if (bytes < 1_000) return `${bytes} B`
+  if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`
+  if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`
+  return `${(bytes / 1_000_000_000).toFixed(2)} GB`
 }

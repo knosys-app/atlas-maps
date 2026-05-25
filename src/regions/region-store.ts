@@ -24,6 +24,21 @@ import type { PluginAPI } from '@/types'
 import { SETTINGS_KEYS } from '@/constants'
 import { listInstalledRegions, type RegionMeta } from './meta'
 
+/**
+ * In-flight hydrate promise. Concurrent callers (MapsPage + the
+ * Settings panel mounting in the same React commit, or StrictMode
+ * double-invoking effects) need to share a single vault+storage
+ * read — without this, both pass the `if (get().hydrated) return`
+ * guard before either reaches `set({ hydrated: true })`, and the
+ * losing `set()` clobbers the winner's freshest installed list.
+ *
+ * Module-scoped because the store is a singleton; the promise
+ * outlives any single component's lifecycle. Cleared in the
+ * promise's `finally` so a subsequent hydrate (after a manual
+ * vault refresh, slice 6b) can re-run.
+ */
+let inFlightHydrate: Promise<void> | null = null
+
 interface RegionStore {
   /** Installed regions discovered by scanning the vault. Sorted by
    *  regionId for deterministic UI ordering — the Settings panel's
@@ -47,47 +62,63 @@ export const useRegionStore = create<RegionStore>((set, get) => ({
   hydrated: false,
 
   async hydrate(api: PluginAPI) {
+    // Fast-path: already settled.
     if (get().hydrated) return
-    try {
-      // Two reads in parallel — they don't depend on each other and
-      // both are cheap.
-      const [installed, savedActive] = await Promise.all([
-        listInstalledRegions(api),
-        api.storage.get<string>(SETTINGS_KEYS.activeRegionId),
-      ])
+    // Concurrent-path: a hydrate is already in flight — wait for
+    // its result rather than starting a parallel read that would
+    // double-count vault traffic and race the `set` on resolution.
+    if (inFlightHydrate) return inFlightHydrate
 
-      // Validate the persisted active id. If it points at a region
-      // that no longer exists (deleted while disabled, or vault
-      // path changed), drop it rather than letting the rail render
-      // against a phantom id. Clear the storage value too so we
-      // don't repeat the validation on every activate.
-      const activeStillExists =
-        savedActive !== null && installed.some((r) => r.regionId === savedActive)
-      const activeRegionId = activeStillExists ? savedActive : null
+    inFlightHydrate = (async () => {
+      try {
+        // Two reads in parallel — they don't depend on each other and
+        // both are cheap.
+        const [installed, savedActive] = await Promise.all([
+          listInstalledRegions(api),
+          api.storage.get<string>(SETTINGS_KEYS.activeRegionId),
+        ])
 
-      if (savedActive !== null && !activeStillExists) {
-        api.log.info(
-          `regions: clearing stale activeRegionId "${savedActive}" (not in installed list)`,
-        )
-        await api.storage.delete(SETTINGS_KEYS.activeRegionId).catch(() => {
-          // Non-fatal — the in-memory state is right; worst case the
-          // stale key sits in storage and re-runs the validation
-          // next activate.
+        // Validate the persisted active id. If it points at a region
+        // that no longer exists (deleted while disabled, or vault
+        // path changed), drop it rather than letting the rail render
+        // against a phantom id. Clear the storage value too so we
+        // don't repeat the validation on every activate.
+        const activeStillExists =
+          savedActive !== null && installed.some((r) => r.regionId === savedActive)
+        const activeRegionId = activeStillExists ? savedActive : null
+
+        if (savedActive !== null && !activeStillExists) {
+          api.log.info(
+            `regions: clearing stale activeRegionId "${savedActive}" (not in installed list)`,
+          )
+          await api.storage.delete(SETTINGS_KEYS.activeRegionId).catch(() => {
+            // Non-fatal — the in-memory state is right; worst case the
+            // stale key sits in storage and re-runs the validation
+            // next activate.
+          })
+        }
+
+        set({
+          installed,
+          activeRegionId,
+          hydrated: true,
         })
+      } catch (err) {
+        // Hard failures (vault unavailable, JSON corrupt) drop us to
+        // an empty installed list. The Settings panel renders its
+        // empty state and the user can still browse the chrome.
+        api.log.warn('regions: hydrate failed', err)
+        set({ installed: [], activeRegionId: null, hydrated: true })
+      } finally {
+        // Clear the in-flight slot so a subsequent hydrate (e.g.
+        // post-install refresh in slice 6b) can run fresh. The
+        // `hydrated` flag still gates the fast path for the common
+        // already-settled case.
+        inFlightHydrate = null
       }
+    })()
 
-      set({
-        installed,
-        activeRegionId,
-        hydrated: true,
-      })
-    } catch (err) {
-      // Hard failures (vault unavailable, JSON corrupt) drop us to
-      // an empty installed list. The Settings panel renders its
-      // empty state and the user can still browse the chrome.
-      api.log.warn('regions: hydrate failed', err)
-      set({ installed: [], activeRegionId: null, hydrated: true })
-    }
+    return inFlightHydrate
   },
 
   async setActive(api: PluginAPI, regionId: string | null) {

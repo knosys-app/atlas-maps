@@ -223,7 +223,12 @@ const RegionRow: FC<RegionRowProps> = ({
           }}
         >
           <span>Built {relativeTime(meta.builtAt)}</span>
-          {meta.oaRowCount ? (
+          {meta.oaRowCount != null ? (
+            // `!= null` rather than truthy so `oaRowCount = 0` (an
+            // import that ran but produced zero rows) renders as
+            // "0 addresses" instead of falling through to the
+            // missing-import warning. The distinguishing signal is
+            // `oaImportedAt`, not the count.
             <>
               <span aria-hidden>·</span>
               <span>{formatRowCount(meta.oaRowCount)} addresses</span>

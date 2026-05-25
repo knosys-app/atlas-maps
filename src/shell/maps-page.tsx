@@ -33,6 +33,7 @@ import { createRouteCard, type RouteFromPoint } from '@/rail/route-card'
 import { useSavedStore } from '@/store/saved-store'
 import { useRouteStore } from '@/store/route-store'
 import { useRegionStore } from '@/regions/region-store'
+import type { RegionMeta } from '@/regions/meta'
 import { STARTER_REGIONS } from '@/data/regions'
 import { toDisplayStep } from '@/routing/step-display'
 import type { RouteProfile } from '@/routing/types'
@@ -214,7 +215,7 @@ export function createMapsPage(
     // and a memo would just hide the dependencies.
     const resolveFrom = (): RouteFromPoint | null => {
       if (fromOverride) return fromOverride
-      return regionCenter(activeRegionId, api)
+      return regionCenter(activeRegionId, api, regions.installed)
     }
 
     const resolvedFrom = resolveFrom()
@@ -242,7 +243,7 @@ export function createMapsPage(
       // `regionCenter()` provides the fallback. If `regionCenter` also
       // returns null (no region match), there's nothing to recalc
       // against so bail.
-      const effectiveFrom = point ?? regionCenter(activeRegionId, api)
+      const effectiveFrom = point ?? regionCenter(activeRegionId, api, regions.installed)
       if (!effectiveFrom) return
       const profile = settingsProfileToRoute(settings.profile)
       void route.setPreview(api, activeRegionId, effectiveFrom, profile, dest)
@@ -390,17 +391,40 @@ export function createMapsPage(
 }
 
 /** Region-center fallback "from" point. The v3.0 stand-in for the
- *  live GPS fix that arrives in v3.1. Returns null when there's no
- *  active region OR when the region id doesn't match a manifest
- *  entry (caller should treat null as "can't route from here"). */
+ *  live GPS fix that arrives in v3.1.
+ *
+ *  Resolution order:
+ *    1. Installed-region `meta.bbox` (set by the orchestrator at
+ *       install time for both manifest + custom-bbox regions). This
+ *       is the path that lets non-manifest region ids — including
+ *       the slice 6a manual-drop testing path — route correctly.
+ *    2. STARTER_REGIONS lookup (matches the canonical manifest id).
+ *       Falls through for older meta.json files that predate the
+ *       bbox field.
+ *    3. null — logs a warning so the silent-fail case is at least
+ *       observable in the plugin log. */
 function regionCenter(
   regionId: string | null,
   api: PluginAPI,
+  installed: RegionMeta[],
 ): RouteFromPoint | null {
   if (!regionId) return null
+
+  const meta = installed.find((m) => m.regionId === regionId)
+  if (meta?.bbox) {
+    const [west, south, east, north] = meta.bbox
+    return {
+      name: 'Region center',
+      lat: (south + north) / 2,
+      lon: (west + east) / 2,
+    }
+  }
+
   const region = STARTER_REGIONS.find((r) => r.id === regionId)
   if (!region) {
-    api.log.warn(`route: no region definition for ${regionId}`)
+    api.log.warn(
+      `route: region "${regionId}" not in STARTER_REGIONS and meta.bbox missing — routing disabled`,
+    )
     return null
   }
   const [west, south, east, north] = region.bbox
