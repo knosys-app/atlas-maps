@@ -8,9 +8,16 @@
 
 import maplibreCss from 'maplibre-gl/dist/maplibre-gl.css?inline'
 import pluginCss from './styles.css?inline'
-import type { PluginAPI, SharedDependencies, PluginRoute, PluginSidebarItem } from './types'
+import type {
+  PluginAPI,
+  SharedDependencies,
+  PluginRoute,
+  PluginSidebarItem,
+  PluginSettingsPanel,
+} from './types'
 import { PLUGIN_ID, PLUGIN_VERSION, MAPS_ROUTE_PATH, SIDEBAR_ORDER } from './constants'
 import { createMapsPage } from './shell/maps-page'
+import { createRegionManagerUi } from './regions/region-manager-ui'
 import { STARTER_REGION_COUNT } from './data/regions'
 import { installEngineIfMissing, stopActiveEngine, subscribeEngineDeaths } from './routing/engine'
 
@@ -69,6 +76,19 @@ export async function activate(api: PluginAPI, shared: SharedDependencies): Prom
     order: SIDEBAR_ORDER,
   }
   api.ui.registerSidebarItem(sidebar)
+
+  // Register the Regions Settings panel. The host mounts this inside
+  // its Settings modal so users can view installed regions + switch
+  // active region without needing to visit /maps first. v3.0 is
+  // read-only; slice 6b adds the install/delete flow.
+  const RegionManagerUi = createRegionManagerUi(api, shared)
+  const settingsPanel: PluginSettingsPanel = {
+    id: 'maps-regions',
+    component: RegionManagerUi,
+    title: 'Maps Regions',
+    order: 100,
+  }
+  api.ui.registerSettingsPanel(settingsPanel)
 
   // Subscribe to engine-death broadcasts so the routing wrapper drops
   // its cached handle and respawns on next route call.
