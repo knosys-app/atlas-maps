@@ -1,23 +1,29 @@
 /**
  * MapsPage — top-level component the host mounts at `/maps`.
  *
- * Composes the shell layout: full-bleed map placeholder + chrome overlay
- * (Plan Pill top-center, Layers button top-right). Rail (search /
- * briefing / saved / recents) and Sheet (Steps tab + others) land in
- * follow-on slices.
+ * Composes the shell layout: full-bleed MapLibre canvas (or the
+ * "install a region" empty state) + chrome overlay (Plan Pill top-
+ * center, Layers button top-right). Rail (search / briefing / saved /
+ * recents) and Sheet (Steps tab + others) land in follow-on slices.
  *
- * This is a factory because Plan Pill / Layers Button need the host-
- * injected `SharedDependencies` (shadcn primitives + lucide icons). The
- * factory closure freezes those at activate time; the returned
- * `MapsPage` is the actual component the route mounts.
+ * This is a factory because Plan Pill / Layers Button / Empty State
+ * need the host-injected `SharedDependencies` (shadcn primitives +
+ * lucide icons). The factory closure freezes those at activate time;
+ * the returned `MapsPage` is the actual component the route mounts.
+ *
+ * Active-region wiring is deferred to slice 6 (region orchestrator).
+ * For now `pmtilesUrl` is always `null` so the MapViewer mounts the
+ * MapLibre canvas with an empty style and `EmptyState` is overlaid on
+ * top with the install-a-region CTA.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ComponentType } from 'react'
 import type { PluginAPI, SharedDependencies } from '@/types'
-import { STARTER_REGION_COUNT } from '@/data/regions'
 import { installEngineIfMissing } from '@/routing/engine'
 import { useSettingsStore, type MapsSettings } from '@/store/settings-store'
+import { MapViewer } from '@/map/map-viewer'
+import { createEmptyState } from '@/map/empty-state'
 import { MapsShell } from './maps-shell'
 import { createPlanPill } from './plan-pill'
 import { createLayersButton } from './layers-button'
@@ -28,12 +34,23 @@ export function createMapsPage(
 ): ComponentType<unknown> {
   const PlanPill = createPlanPill(Shared)
   const LayersButton = createLayersButton(Shared)
+  const EmptyState = createEmptyState(Shared)
 
   const MapsPage: ComponentType<unknown> = () => {
     const settings = useSettingsStore()
-    const [engineReady, setEngineReady] = useState<boolean | null>(null)
-    const [engineError, setEngineError] = useState<string | null>(null)
-    const [enginePhase, setEnginePhase] = useState<string>('')
+    // Region state stub until slice 6 wires real region detection.
+    // Holding it here means the slice 6 change is local to MapsPage.
+    const [activeRegionId] = useState<string | null>(null)
+    const [pmtilesUrl] = useState<string | null>(null)
+    // Engine pre-warm status lives in refs rather than React state
+    // because nothing in the render body currently reads it — using
+    // state would schedule a re-render of MapsPage (and therefore
+    // MapViewer / EmptyState / the chrome) on every progress event
+    // for no UI benefit. Once an engine-status UI lands these can
+    // convert to state and drive whichever component displays them.
+    const engineReadyRef = useRef<boolean | null>(null)
+    const engineErrorRef = useRef<string | null>(null)
+    const enginePhaseRef = useRef<string>('')
 
     // Hydrate persisted settings on mount. The store guards against
     // double-hydration, so a fast re-render won't refire the IPC.
@@ -41,21 +58,22 @@ export function createMapsPage(
       void settings.hydrate(api)
     }, [])
 
-    // Pre-warm the routing engine. Non-fatal failure — the user can still
-    // browse the chrome, just can't route until binaries are available.
+    // Pre-warm the routing engine. Non-fatal failure — the user can
+    // still browse the chrome / empty state, just can't route until
+    // binaries are available.
     useEffect(() => {
       let cancelled = false
       ;(async () => {
         try {
           await installEngineIfMissing(api, (phase, _percent, message) => {
             if (cancelled) return
-            setEnginePhase(message ? `${phase}: ${message}` : phase)
+            enginePhaseRef.current = message ? `${phase}: ${message}` : phase
           })
-          if (!cancelled) setEngineReady(true)
+          if (!cancelled) engineReadyRef.current = true
         } catch (err) {
           if (cancelled) return
-          setEngineReady(false)
-          setEngineError((err as Error).message)
+          engineReadyRef.current = false
+          engineErrorRef.current = (err as Error).message
         }
       })()
       return () => {
@@ -69,64 +87,33 @@ export function createMapsPage(
     const onSettingsChange = (patch: Partial<MapsSettings>) =>
       settings.update(api, patch)
 
-    // The map slot stays a placeholder until the MapLibre viewer lands in
-    // the next slice. The placeholder uses a soft gradient so the chrome
-    // overlays are still visible against something other than pure
-    // background — easier to tune spacing during the port.
-    const mapPlaceholder = (
-      <div
-        className="kmaps-map-container"
-        style={{
-          background:
-            'radial-gradient(120% 100% at 20% 0%, rgb(var(--kmaps-accent) / 0.12), transparent 60%), rgb(var(--kmaps-surface-tint) / 0.4)',
-        }}
-        aria-label="Map (renders here once the viewer slice lands)"
-      >
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 24,
-            left: 24,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-            color: 'rgb(var(--kmaps-fg-muted))',
-            fontFamily: 'var(--kmaps-font-mono)',
-            fontSize: 12,
-            pointerEvents: 'none',
-          }}
-        >
-          <div>
-            <strong style={{ color: 'rgb(var(--kmaps-fg))' }}>
-              {STARTER_REGION_COUNT}
-            </strong>{' '}
-            regions available
-          </div>
-          {engineReady === null ? <div>engine: {enginePhase || 'checking…'}</div> : null}
-          {engineReady === true ? (
-            <div style={{ color: 'rgb(var(--kmaps-success))' }}>
-              engine: ready
-            </div>
-          ) : null}
-          {engineReady === false ? (
-            <div style={{ color: 'rgb(var(--kmaps-danger))' }}>
-              engine: {engineError ?? 'unavailable'}
-            </div>
-          ) : null}
-          <div style={{ opacity: 0.7 }}>
-            map viewer + PMTiles render here (next slice)
-          </div>
-        </div>
+    const handleInstallRegion = () => {
+      // Settings → Regions panel doesn't exist yet (lands with slice 6).
+      // Log so the click is observable during smoke testing.
+      api.log.info('EmptyState install-region click (regions panel not yet wired)')
+    }
+
+    // Compose the map layer. The MapViewer mounts MapLibre with the
+    // active region's PMTiles (null until slice 6). The EmptyState
+    // overlays the canvas whenever no region is active — covers both
+    // the fresh-install case and the "all regions deleted" case.
+    const mapLayer = (
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <MapViewer api={api} regionId={activeRegionId} pmtilesUrl={pmtilesUrl} />
+        {activeRegionId === null ? (
+          <EmptyState onInstallRegion={handleInstallRegion} />
+        ) : null}
       </div>
     )
 
     return (
-      <MapsShell map={mapPlaceholder}>
+      <MapsShell map={mapLayer}>
         <PlanPill
           preview={null}
           onSearchClick={() => {
-            // Rail isn't built yet; this is a no-op until the search card
-            // lands. Logging gives us a confirmation hook during smoke.
+            // Rail isn't built yet; this is a no-op until the search
+            // card lands. Logging gives us a confirmation hook during
+            // smoke.
             api.log.info('PlanPill search clicked (rail not yet wired)')
           }}
           onClearRoute={() => {
