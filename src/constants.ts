@@ -40,3 +40,19 @@ export const SETTINGS_KEYS = {
   voiceOn: 'maps.voice-on',
   gpsSource: 'maps.gps-source',
 } as const
+
+/** Default MapLibre camera when no per-region viewport is stored. The
+ *  US-centered view is a reasonable default for the starter region set
+ *  (51 US states + Canada / Europe / APAC); regions install their own
+ *  fitBounds when the user activates them. */
+export const DEFAULT_MAP_CENTER: [number, number] = [-98.5, 39.5]
+export const DEFAULT_MAP_ZOOM = 3
+export const DEFAULT_MAP_BEARING = 0
+export const DEFAULT_MAP_PITCH = 0
+
+/** Attribution shown in the bottom-right corner of the map. The
+ *  Protomaps + OSM line is required by both projects' licenses; the
+ *  Knosys credit is courtesy. */
+export const MAP_ATTRIBUTION =
+  '© <a href="https://protomaps.com">Protomaps</a> · ' +
+  '© <a href="https://openstreetmap.org/copyright">OSM</a>'
