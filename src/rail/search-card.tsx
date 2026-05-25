@@ -69,7 +69,11 @@ export function createSearchCard(Shared: SharedDependencies) {
     const [query, setQuery] = useState('')
     const { results, loading, error } = useGeocoder({ api, regionId, query, near })
     const savedAdd = useSavedStore((s) => s.add)
-    const [saveErrorId, setSaveErrorId] = useState<string | null>(null)
+    // Track per-row save failures as a Set so concurrent failures on
+    // different rows don't clobber each other's red highlight. A
+    // success path on a row clears that row's id from the Set;
+    // failure on another row leaves both highlighted independently.
+    const [saveErrorIds, setSaveErrorIds] = useState<Set<string>>(() => new Set())
 
     const handleSelect = (r: PlaceResult) => {
       onSelectDestination?.({
@@ -82,7 +86,15 @@ export function createSearchCard(Shared: SharedDependencies) {
     }
 
     const handleSave = async (r: PlaceResult) => {
-      setSaveErrorId(null)
+      const id = stableId(r)
+      // Clear THIS row's prior error (if any) on retry — leave other
+      // rows' errors intact.
+      setSaveErrorIds((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
       try {
         await savedAdd(api, {
           name: r.name,
@@ -92,8 +104,13 @@ export function createSearchCard(Shared: SharedDependencies) {
       } catch {
         // saved-store re-throws on persist failure (PR #7 round 2);
         // mark this row's Save button as failed so the user sees
-        // their click did NOT take effect.
-        setSaveErrorId(stableId(r))
+        // their click did NOT take effect. Other rows' error state
+        // is unchanged.
+        setSaveErrorIds((prev) => {
+          const next = new Set(prev)
+          next.add(id)
+          return next
+        })
       }
     }
 
@@ -135,7 +152,7 @@ export function createSearchCard(Shared: SharedDependencies) {
             error={error}
             iconFor={iconFor}
             Star={Star}
-            saveErrorId={saveErrorId}
+            saveErrorIds={saveErrorIds}
             onSelect={handleSelect}
             onSave={handleSave}
           />
@@ -153,7 +170,7 @@ interface ResultsPanelProps {
   error: string | null
   iconFor: (c: PlaceCategory) => FC<{ className?: string; style?: object }> | null
   Star?: FC<{ className?: string; style?: object }>
-  saveErrorId: string | null
+  saveErrorIds: Set<string>
   onSelect: (r: PlaceResult) => void
   onSave: (r: PlaceResult) => void
 }
@@ -164,7 +181,7 @@ const ResultsPanel: FC<ResultsPanelProps> = ({
   error,
   iconFor,
   Star,
-  saveErrorId,
+  saveErrorIds,
   onSelect,
   onSave,
 }) => {
@@ -223,8 +240,13 @@ const ResultsPanel: FC<ResultsPanelProps> = ({
   }
 
   return (
+    // Native `<ul>`/`<li>` semantics (role=list / role=listitem) rather
+    // than role="listbox"/option — these rows are one-shot navigation
+    // items, not a selection target. The listbox contract requires
+    // tracking a selected option via aria-selected, which doesn't fit
+    // a "click to set destination" UX. The buttons inside each row
+    // provide native keyboard accessibility.
     <ul
-      role="listbox"
       aria-label="Search suggestions"
       style={{
         listStyle: 'none',
@@ -238,12 +260,10 @@ const ResultsPanel: FC<ResultsPanelProps> = ({
       {results.map((r) => {
         const id = stableId(r)
         const Icon = iconFor(r.category)
-        const failed = saveErrorId === id
+        const failed = saveErrorIds.has(id)
         return (
           <li
             key={id}
-            role="option"
-            aria-selected={false}
             style={{
               display: 'grid',
               gridTemplateColumns: '20px 1fr 28px',

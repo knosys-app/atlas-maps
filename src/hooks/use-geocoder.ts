@@ -83,6 +83,17 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
 
     if (dbRegionRef.current === regionId) return // already open
 
+    // Null the DB ref SYNCHRONOUSLY so any in-flight search timer
+    // that fires during the async `openPlacesDb` below sees a missing
+    // DB and short-circuits — rather than searching against the
+    // previous region's still-pointed handle. Also clear the result
+    // list so the user doesn't briefly see entries from the previous
+    // region while the new DB opens.
+    const prev = dbRef.current
+    dbRef.current = null
+    dbRegionRef.current = null
+    setState({ results: [], loading: false, error: null })
+
     ;(async () => {
       try {
         const next = await openPlacesDb(api, regionId)
@@ -90,15 +101,16 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
           void next.close()
           return
         }
-        const prev = dbRef.current
         dbRef.current = next
         dbRegionRef.current = regionId
         void prev?.close()
-        setState((s) => ({ ...s, error: null }))
       } catch (err) {
         if (cancelled) return
         api.log.warn(`geocoder: failed to open places.db for ${regionId}`, err)
         setState({ results: [], loading: false, error: 'Region database unavailable' })
+        // Close the old handle on the failure path too — we already
+        // committed to abandoning it when the region changed.
+        void prev?.close()
       }
     })()
 
@@ -120,6 +132,14 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
 
   // Debounced search. Each query bumps `requestIdRef`; only the
   // most recent in-flight request commits its results to state.
+  //
+  // Deps include `regionId` so a mid-query region change tears down
+  // the in-flight debounce timer (via the cleanup) before it can
+  // fire against the wrong handle. The timer reads `dbRef.current`
+  // INSIDE the callback rather than capturing it before — combined
+  // with the region-change effect nulling `dbRef` synchronously,
+  // this means a timer that does sneak through finds `db === null`
+  // and short-circuits.
   useEffect(() => {
     const trimmed = query.trim()
     if (trimmed.length < MIN_QUERY_LENGTH) {
@@ -127,10 +147,11 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
       return
     }
 
-    const db = dbRef.current
-    if (!db) {
-      // DB not yet open (region change in flight). Don't dispatch.
-      setState((s) => ({ ...s, loading: false }))
+    if (regionId === null || dbRef.current === null) {
+      // Either no region active, or the new region's DB is still
+      // opening. Show a loading state until the DB resolves, at
+      // which point the next render will re-run this effect.
+      setState((s) => ({ ...s, loading: regionId !== null }))
       return
     }
 
@@ -140,6 +161,13 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
 
     const timer = setTimeout(() => {
       void (async () => {
+        const db = dbRef.current
+        if (!db) {
+          // DB swapped out during the debounce window — abandon
+          // this request without touching state (a newer one will
+          // fire when the new DB opens).
+          return
+        }
         try {
           const results = await search(
             { query: trimmed, near },
@@ -159,7 +187,7 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
     }, SEARCH_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)
-  }, [api, query, near?.lat, near?.lon])
+  }, [api, regionId, query, near?.lat, near?.lon])
 
   return state
 }
