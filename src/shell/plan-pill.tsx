@@ -104,7 +104,8 @@ export function createPlanPill(Shared: SharedDependencies) {
         ) : null}
         <span style={{ letterSpacing: '-0.011em' }}>{preview.destinationName}</span>
         <span className="kmaps-pill-chip">
-          {preview.distanceLabel} · {preview.etaLabel}
+          {preview.distanceLabel}
+          {preview.etaLabel ? ` · ${preview.etaLabel}` : ''}
         </span>
 
         <DropdownMenu>

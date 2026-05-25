@@ -71,9 +71,10 @@ function describeStep(step: InternalRouteStep): string {
   }
 }
 
-/** Lucide icon name for a maneuver. Falls back to a generic arrow when
- *  no specific direction applies; the steps-tab StepIcon component
- *  resolves the actual component via `Shared.lucideIcons`. */
+/** Lucide icon name for a maneuver. Falls back to `ArrowUp` (continue
+ *  straight) when no direction-specific icon applies; the steps-tab
+ *  StepIcon component resolves the actual component via
+ *  `Shared.lucideIcons`. */
 function iconForManeuver(type: string, modifier?: string): string {
   if (type === 'arrive') return 'MapPin'
   if (type === 'depart') return 'Navigation'
@@ -87,6 +88,13 @@ function iconForManeuver(type: string, modifier?: string): string {
     if (modifier.includes('left')) return 'ArrowLeft'
     if (modifier.includes('right')) return 'ArrowRight'
     if (modifier.includes('uturn')) return 'RotateCcw'
+    // `'straight'` is a valid OSRM/Valhalla modifier — without an
+    // explicit branch it would fall through to the diagonal `ArrowUpRight`
+    // default, which reads as a fork rather than a continue.
+    if (modifier.includes('straight')) return 'ArrowUp'
   }
-  return 'ArrowUpRight'
+  // Default is the upward arrow (continue straight) rather than the
+  // diagonal ArrowUpRight — diagonal implied "fork right" which isn't
+  // what an unmodified continue / unknown step should look like.
+  return 'ArrowUp'
 }

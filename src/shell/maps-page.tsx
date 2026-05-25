@@ -25,7 +25,7 @@ import { useSettingsStore, type MapsSettings } from '@/store/settings-store'
 import { MapViewer } from '@/map/map-viewer'
 import { createEmptyState } from '@/map/empty-state'
 import { createRouteRail } from '@/rail/route-rail'
-import { createSearchCard } from '@/rail/search-card'
+import { createSearchCard, type SearchSuggestion } from '@/rail/search-card'
 import { createRecentsCard, type RecentRoute } from '@/rail/recents-card'
 import { createBriefingCard, type BriefingPreview } from '@/rail/briefing-card'
 import { createSavedCard } from '@/rail/saved-card'
@@ -186,7 +186,7 @@ export function createMapsPage(
     // Wire SearchCard selection → route store preview. The "from"
     // anchor is the active region's bbox center for v3.0; v3.1's GPS
     // slice will swap in the live fix.
-    const handleSelectDestination = (s: import('@/rail/search-card').SearchSuggestion) => {
+    const handleSelectDestination = (s: SearchSuggestion) => {
       if (!activeRegionId) return
       const region = STARTER_REGIONS.find((r) => r.id === activeRegionId)
       if (!region) {
@@ -206,10 +206,18 @@ export function createMapsPage(
             route.preview
               ? {
                   destinationName: route.preview.destination.name,
-                  // While the route is calculating (`routeData === null`)
-                  // show "Calculating…" instead of distance/duration so
-                  // the chip doesn't read as a stale value.
-                  distanceLabel: routeData ? fmtDistance(routeData.distance) : 'Calculating…',
+                  // Three states for the chip:
+                  //   - routeData present → "12.4 mi · 18 min"
+                  //   - error present (calculate failed) → "Unavailable"
+                  //   - otherwise calculation in-flight → "Calculating…"
+                  // The pill's chip suppresses the " · etaLabel" tail
+                  // when etaLabel is empty, so error + loading states
+                  // render without a trailing separator.
+                  distanceLabel: routeData
+                    ? fmtDistance(routeData.distance)
+                    : route.error
+                    ? 'Unavailable'
+                    : 'Calculating…',
                   etaLabel: routeData ? fmtDuration(routeData.duration) : '',
                 }
               : null
