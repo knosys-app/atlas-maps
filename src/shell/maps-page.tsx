@@ -169,7 +169,16 @@ export function createMapsPage(
             <RouteRail>
               <BriefingCard preview={briefingPreview} />
               <RailSection title="Search">
-                <SearchCard />
+                <SearchCard
+                  api={api}
+                  regionId={activeRegionId}
+                  onSelectDestination={(s) => {
+                    // Slice 3c will use this to set the route preview
+                    // + open the sheet to half. For now log the click
+                    // so the wiring is observable during smoke.
+                    api.log.info(`SearchCard select: ${s.name} (${s.lat}, ${s.lon})`)
+                  }}
+                />
               </RailSection>
               <RailSection title="Saved">
                 <SavedCard
