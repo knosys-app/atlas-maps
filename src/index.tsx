@@ -10,7 +10,7 @@ import maplibreCss from 'maplibre-gl/dist/maplibre-gl.css?inline'
 import pluginCss from './styles.css?inline'
 import type { PluginAPI, SharedDependencies, PluginRoute, PluginSidebarItem } from './types'
 import { PLUGIN_ID, PLUGIN_VERSION, MAPS_ROUTE_PATH, SIDEBAR_ORDER } from './constants'
-import { MapsPage } from './shell/maps-page'
+import { createMapsPage } from './shell/maps-page'
 import { STARTER_REGION_COUNT } from './data/regions'
 import { installEngineIfMissing, stopActiveEngine, subscribeEngineDeaths } from './routing/engine'
 
@@ -45,14 +45,16 @@ function removeStyles(): void {
   }
 }
 
-export async function activate(api: PluginAPI, _shared: SharedDependencies): Promise<void> {
+export async function activate(api: PluginAPI, shared: SharedDependencies): Promise<void> {
   pluginApi = api
   api.log.info(`knosys-maps v${PLUGIN_VERSION} activating — ${STARTER_REGION_COUNT} starter regions available`)
   injectStyles()
 
-  // Register the main /maps route. The component reads context from the
-  // singleton `pluginApi` rather than receiving the api via props — that
-  // keeps the route signature standard across Knosys plugins.
+  // Build the page component lazily with the host-injected Shared deps
+  // baked into its closure. Same factory pattern flight-planner uses —
+  // freezes the host's shadcn primitives + lucide icons at activate
+  // time so child components don't need to thread Shared via props.
+  const MapsPage = createMapsPage(api, shared)
   const route: PluginRoute = {
     path: MAPS_ROUTE_PATH,
     component: MapsPage,

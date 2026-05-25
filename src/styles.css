@@ -1,29 +1,36 @@
-/**
- * knosys-maps v3 — design tokens, scoped under .kmaps-root.
+/* knosys-maps — design tokens + materials.
+ * Ported verbatim from `knosys-flight-planner` (Apple-Maps-inspired glass
+ * shell) with the `.kfp-` namespace renamed to `.kmaps-` so the two
+ * plugins can co-exist in the host's renderer without selector conflicts.
  *
- * Ported (abbreviated) from /tmp/flight-planner/src/styles.css. The full
- * flight-planner shell (Plan Pill, Layers, Rail, Sheet) needs another
- * ~1500 lines of token definitions + motion easings + surface materials;
- * that lands incrementally with the UI components in follow-on sessions.
+ * Scoped under `.kmaps-root`. Host's Tailwind content glob doesn't scan
+ * plugin source, so every non-trivial styling decision lives here.
  *
- * Scope: every selector starts with .kmaps-root so the plugin can never
- * leak styles into the host or other plugins.
+ * Aviation-specific styles (place card / runways / wind barbs / elevation
+ * profile sky+terrain / leg timeline) are intentionally NOT ported — the
+ * maps domain doesn't need them. If/when we add an elevation chart for
+ * driving routes we'll re-introduce a simpler variant.
+ *
+ * Typography: SF Pro Display / SF Pro Text / SF Mono via system stacks.
+ * Materials: translucent frosted glass with backdrop-filter.
+ * Colors: CSS vars with prefers-color-scheme swaps.
  */
 
-.kmaps-root {
-  --kmaps-bg: #ffffff;
-  --kmaps-fg: #121216;
-  --kmaps-muted: #6a6a72;
-  --kmaps-accent: #007aff;
-  --kmaps-warn: #ff9f0a;
-  --kmaps-danger: #ff453a;
-  --kmaps-success: #34c759;
+/* Token scope — applies to the main .kmaps-root and to any portalled
+ * popover whose content is tagged .kmaps-scope. Radix popovers mount into
+ * document.body (outside .kmaps-root), so their CSS var references would
+ * resolve to the initial value without this second selector. */
+.kmaps-root,
+.kmaps-scope {
+  /* Typography */
+  --kmaps-font-display:
+    -apple-system, 'SF Pro Display', BlinkMacSystemFont, system-ui, sans-serif;
+  --kmaps-font-text:
+    -apple-system, 'SF Pro Text', BlinkMacSystemFont, system-ui, sans-serif;
+  --kmaps-font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
 
-  --kmaps-r-sm: 10px;
-  --kmaps-r-md: 14px;
-  --kmaps-r-lg: 20px;
-  --kmaps-r-xl: 28px;
-
+  /* Spacing scale */
   --kmaps-s-1: 4px;
   --kmaps-s-2: 8px;
   --kmaps-s-3: 12px;
@@ -31,68 +38,684 @@
   --kmaps-s-5: 24px;
   --kmaps-s-6: 32px;
 
-  --kmaps-spring-a: cubic-bezier(0.32, 0.72, 0, 1);
-  --kmaps-spring-b: cubic-bezier(0.25, 0.9, 0.3, 1.1);
-  --kmaps-spring-c: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Radius */
+  --kmaps-r-sm: 10px;
+  --kmaps-r-md: 14px;
+  --kmaps-r-lg: 20px;
+  --kmaps-r-xl: 28px;
+
+  /* Motion */
+  --kmaps-spring-a: cubic-bezier(0.32, 0.72, 0, 1);   /* sheets, rail */
+  --kmaps-spring-b: cubic-bezier(0.25, 0.9, 0.3, 1.1); /* hover lifts */
+  --kmaps-spring-c: cubic-bezier(0.22, 1, 0.36, 1);   /* draw-on, fly-to */
   --kmaps-dur-quick: 180ms;
   --kmaps-dur-base: 250ms;
   --kmaps-dur-medium: 450ms;
+  --kmaps-dur-long: 1100ms;
 
-  --kmaps-font-display: -apple-system, 'SF Pro Display', BlinkMacSystemFont, system-ui, sans-serif;
-  --kmaps-font-text: -apple-system, 'SF Pro Text', BlinkMacSystemFont, system-ui, sans-serif;
-  --kmaps-font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+  /* Light palette */
+  --kmaps-bg: 255 255 255;
+  --kmaps-fg: 18 18 22;
+  --kmaps-fg-muted: 106 106 114;
+  --kmaps-fg-faint: 150 150 158;
+  --kmaps-surface-tint: 252 252 253;
+  --kmaps-surface-alpha-thin: 0.68;
+  --kmaps-surface-alpha-thick: 0.86;
+  --kmaps-hairline: 0 0 0 / 0.10;
+  --kmaps-hairline-strong: 0 0 0 / 0.16;
+  --kmaps-shadow-lift:
+    0 0.5px 0 rgb(255 255 255 / 0.5) inset,
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 12px 30px -10px rgb(0 0 0 / 0.18);
+  --kmaps-accent: 0 122 255;           /* SF system blue */
+  --kmaps-accent-ink: 255 255 255;
+  --kmaps-warn: 255 159 10;            /* SF system orange */
+  --kmaps-danger: 255 69 58;           /* SF system red */
+  --kmaps-success: 52 199 89;          /* SF system green */
 
+  color: rgb(var(--kmaps-fg));
   font-family: var(--kmaps-font-text);
+  font-synthesis: none;
   -webkit-font-smoothing: antialiased;
-  color: var(--kmaps-fg);
-  background: var(--kmaps-bg);
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'ss01', 'ss02', 'cv11';
+}
+
+/* Dark mode signaled either by the host's explicit <html class="dark">
+ * (Knosys ThemeProvider, which applies it whenever effective mode is
+ * dark), or — as a fallback when the plugin runs outside Knosys — by the
+ * OS `prefers-color-scheme: dark` media query. Both blocks apply the same
+ * variable overrides so whichever signal fires, the plugin tracks it. */
+
+html.dark .kmaps-root,
+html.dark .kmaps-scope,
+html[data-theme='dark'] .kmaps-root,
+html[data-theme='dark'] .kmaps-scope {
+  --kmaps-bg: 14 14 17;
+  --kmaps-fg: 235 235 240;
+  --kmaps-fg-muted: 150 150 160;
+  --kmaps-fg-faint: 100 100 110;
+  --kmaps-surface-tint: 30 30 34;
+  --kmaps-surface-alpha-thin: 0.62;
+  --kmaps-surface-alpha-thick: 0.78;
+  --kmaps-hairline: 255 255 255 / 0.10;
+  --kmaps-hairline-strong: 255 255 255 / 0.16;
+  --kmaps-shadow-lift:
+    0 0.5px 0 rgb(255 255 255 / 0.10) inset,
+    0 1px 2px rgb(0 0 0 / 0.35),
+    0 20px 45px -10px rgb(0 0 0 / 0.55);
+  --kmaps-accent: 10 132 255;
+  --kmaps-warn: 255 179 64;
+  --kmaps-danger: 255 105 97;
+  --kmaps-success: 48 209 88;
 }
 
 @media (prefers-color-scheme: dark) {
-  .kmaps-root {
-    --kmaps-bg: #0e0e11;
-    --kmaps-fg: #ebebf0;
-    --kmaps-muted: #96969e;
-    --kmaps-accent: #0a84ff;
-    --kmaps-warn: #ffb340;
-    --kmaps-danger: #ff6961;
-    --kmaps-success: #30d158;
+  .kmaps-root,
+  .kmaps-scope {
+    --kmaps-bg: 14 14 17;
+    --kmaps-fg: 235 235 240;
+    --kmaps-fg-muted: 150 150 160;
+    --kmaps-fg-faint: 100 100 110;
+    --kmaps-surface-tint: 30 30 34;
+    --kmaps-surface-alpha-thin: 0.62;
+    --kmaps-surface-alpha-thick: 0.78;
+    --kmaps-hairline: 255 255 255 / 0.10;
+    --kmaps-hairline-strong: 255 255 255 / 0.16;
+    --kmaps-shadow-lift:
+      0 0.5px 0 rgb(255 255 255 / 0.10) inset,
+      0 1px 2px rgb(0 0 0 / 0.35),
+      0 20px 45px -10px rgb(0 0 0 / 0.55);
+    --kmaps-accent: 10 132 255;
+    --kmaps-warn: 255 179 64;
+    --kmaps-danger: 255 105 97;
+    --kmaps-success: 48 209 88;
   }
 }
 
-.kmaps-display {
-  font-family: var(--kmaps-font-display);
-  font-size: 34px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+/* An explicit light class/attribute forces back to light even when the OS
+ * is dark — needed so Knosys mode='light' (its default) keeps the plugin
+ * in light even if the OS is dark. */
+html:not(.dark)[data-theme='light'] .kmaps-root,
+html:not(.dark)[data-theme='light'] .kmaps-scope {
+  --kmaps-bg: 255 255 255;
+  --kmaps-fg: 18 18 22;
+  --kmaps-fg-muted: 106 106 114;
+  --kmaps-fg-faint: 150 150 158;
+  --kmaps-surface-tint: 252 252 253;
+  --kmaps-surface-alpha-thin: 0.68;
+  --kmaps-surface-alpha-thick: 0.86;
+  --kmaps-hairline: 0 0 0 / 0.10;
+  --kmaps-hairline-strong: 0 0 0 / 0.16;
+  --kmaps-shadow-lift:
+    0 0.5px 0 rgb(255 255 255 / 0.5) inset,
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 12px 30px -10px rgb(0 0 0 / 0.18);
+  --kmaps-accent: 0 122 255;
+  --kmaps-warn: 255 159 10;
+  --kmaps-danger: 255 69 58;
+  --kmaps-success: 52 199 89;
 }
 
-.kmaps-mono {
-  font-family: var(--kmaps-font-mono);
-  font-variant-numeric: tabular-nums;
+/* ========== Root layout ========== */
+
+.kmaps-root {
+  /* height is set inline by MapsShell via measured viewport space — the
+   * Knosys host's flex chain uses min-height, not height, so CSS
+   * percentage height can't resolve. */
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background: rgb(var(--kmaps-bg));
 }
 
+.kmaps-root *:focus-visible {
+  outline: 2px solid rgb(var(--kmaps-accent));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ========== Materials ========== */
+
+.kmaps-surface-thin,
+.kmaps-surface-thick {
+  background-color: rgb(var(--kmaps-surface-tint) / var(--kmaps-surface-alpha-thin));
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+  border: 1px solid rgb(var(--kmaps-hairline));
+  box-shadow: var(--kmaps-shadow-lift);
+}
+
+.kmaps-surface-thick {
+  background-color: rgb(var(--kmaps-surface-tint) / var(--kmaps-surface-alpha-thick));
+}
+
+.kmaps-hairline {
+  border-bottom: 1px solid rgb(var(--kmaps-hairline));
+}
+
+/* ========== Typography helpers ========== */
+
+.kmaps-display { font-family: var(--kmaps-font-display); letter-spacing: -0.011em; }
+.kmaps-mono { font-family: var(--kmaps-font-mono); font-variant-numeric: tabular-nums; font-feature-settings: 'ss01','ss02'; }
+.kmaps-tabular { font-variant-numeric: tabular-nums; }
 .kmaps-label-caps {
+  font-family: var(--kmaps-font-text);
   font-size: 11px;
   font-weight: 590;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: rgb(var(--kmaps-fg-muted));
 }
 
-/* Glass-surface materials — copied verbatim from flight-planner. */
+/* ========== Shell slots ========== */
 
-.kmaps-surface-thin {
-  background: color-mix(in srgb, var(--kmaps-bg) 68%, transparent);
-  backdrop-filter: saturate(180%) blur(24px);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
-  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
-  box-shadow: 0 0.5px 0 inset rgba(255, 255, 255, 0.4), 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 30px -10px rgba(0, 0, 0, 0.12);
+.kmaps-map-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
 
-.kmaps-surface-thick {
-  background: color-mix(in srgb, var(--kmaps-bg) 86%, transparent);
-  backdrop-filter: saturate(180%) blur(24px);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
-  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
-  box-shadow: 0 0.5px 0 inset rgba(255, 255, 255, 0.5), 0 1px 2px rgba(0, 0, 0, 0.05), 0 16px 40px -12px rgba(0, 0, 0, 0.18);
+.kmaps-chrome-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.kmaps-chrome-layer > * { pointer-events: auto; }
+
+/* ========== Plan pill (top-center) ==========
+ * Maps-domain content: shows "Search a destination" when idle, the
+ * active route summary when previewing, or "Navigating to <X>" during
+ * live nav (v3.1). */
+
+.kmaps-pill {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  height: 44px;
+  border-radius: 999px;
+  font-family: var(--kmaps-font-display);
+  font-size: 15px;
+  font-weight: 500;
+  color: rgb(var(--kmaps-fg));
+  animation: kmaps-fade-down var(--kmaps-dur-medium) var(--kmaps-spring-a) both;
+  max-width: min(560px, calc(100vw - 32px));
+  z-index: 3;
+}
+
+.kmaps-pill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(var(--kmaps-fg) / 0.06);
+  font-size: 12px;
+  font-family: var(--kmaps-font-mono);
+  color: rgb(var(--kmaps-fg-muted));
+}
+
+.kmaps-pill-placeholder {
+  color: rgb(var(--kmaps-fg-muted));
+  font-weight: 400;
+}
+
+/* ========== Layers button (top-right) ========== */
+
+.kmaps-layers-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: rgb(var(--kmaps-fg));
+  transition: transform var(--kmaps-dur-base) var(--kmaps-spring-b);
+  z-index: 3;
+}
+.kmaps-layers-btn:hover { transform: scale(1.04); }
+.kmaps-layers-btn:active { transform: scale(0.96); }
+
+.kmaps-layers-menu {
+  width: 300px;
+  padding: 6px;
+  border-radius: 16px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.kmaps-layers-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  gap: 12px;
+}
+.kmaps-layers-item:hover { background: rgb(var(--kmaps-fg) / 0.05); }
+.kmaps-layers-item-meta { font-size: 11px; color: rgb(var(--kmaps-fg-muted)); font-family: var(--kmaps-font-mono); }
+
+/* Segmented control inside the layers menu (e.g. profile picker
+ * Auto/Bike/Walk, style Light/Dark/Auto). */
+.kmaps-segmented {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgb(var(--kmaps-fg) / 0.06);
+}
+.kmaps-segmented-option {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgb(var(--kmaps-fg-muted));
+  font-family: var(--kmaps-font-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--kmaps-dur-quick) var(--kmaps-spring-b),
+              background var(--kmaps-dur-quick) var(--kmaps-spring-b);
+}
+.kmaps-segmented-option[data-active='true'] {
+  color: rgb(var(--kmaps-fg));
+  background: rgb(var(--kmaps-surface-tint));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+.kmaps-segmented-option:hover:not([data-active='true']) {
+  color: rgb(var(--kmaps-fg));
+}
+
+/* ========== Left rail (lands in follow-on slice) ========== */
+
+.kmaps-rail {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  width: 340px;
+  max-height: calc(100% - 108px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  overflow: hidden;
+  transform: translateY(-50%);
+  animation: kmaps-fade-in-left var(--kmaps-dur-medium) var(--kmaps-spring-a) both;
+  animation-delay: 80ms;
+  z-index: 2;
+}
+
+.kmaps-rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kmaps-rail-scroll::-webkit-scrollbar { width: 8px; }
+.kmaps-rail-scroll::-webkit-scrollbar-thumb { background: rgb(var(--kmaps-fg) / 0.12); border-radius: 4px; }
+
+.kmaps-rail-card {
+  background: rgb(var(--kmaps-surface-tint) / 0.6);
+  border: 1px solid rgb(var(--kmaps-hairline));
+  border-radius: var(--kmaps-r-md);
+  padding: 12px;
+}
+.kmaps-rail-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+/* ========== Briefing card (route summary — lands with rail) ========== */
+
+.kmaps-briefing {
+  position: relative;
+  padding: 14px 14px 12px;
+  border-radius: var(--kmaps-r-md);
+  background:
+    radial-gradient(120% 140% at 0% 0%,
+      rgb(var(--kmaps-accent) / 0.18) 0%,
+      rgb(var(--kmaps-accent) / 0.04) 40%,
+      transparent 70%),
+    rgb(var(--kmaps-surface-tint) / 0.8);
+  border: 1px solid rgb(var(--kmaps-hairline));
+}
+.kmaps-briefing-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 590;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(var(--kmaps-fg-muted));
+}
+.kmaps-briefing-headline {
+  font-family: var(--kmaps-font-display);
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.kmaps-briefing-sub {
+  font-family: var(--kmaps-font-mono);
+  font-size: 12px;
+  color: rgb(var(--kmaps-fg-muted));
+  margin-top: 4px;
+  letter-spacing: 0.01em;
+}
+.kmaps-briefing-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.kmaps-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+  background: rgb(var(--kmaps-fg) / 0.06);
+  color: rgb(var(--kmaps-fg));
+}
+.kmaps-chip-warn {
+  background: rgb(var(--kmaps-warn) / 0.14);
+  color: rgb(var(--kmaps-warn));
+}
+.kmaps-chip-danger {
+  background: rgb(var(--kmaps-danger) / 0.14);
+  color: rgb(var(--kmaps-danger));
+}
+.kmaps-chip-accent {
+  background: rgb(var(--kmaps-accent) / 0.14);
+  color: rgb(var(--kmaps-accent));
+}
+button.kmaps-chip {
+  font-size: 11px;
+  line-height: 1;
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+/* ========== Bottom sheet (peek/half/full detents) ========== */
+
+.kmaps-sheet {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  max-height: calc(100% - 32px);
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translate3d(0, 0, 0);
+  transition:
+    height var(--kmaps-dur-medium) var(--kmaps-spring-a),
+    left var(--kmaps-dur-medium) var(--kmaps-spring-a),
+    right var(--kmaps-dur-medium) var(--kmaps-spring-a),
+    transform var(--kmaps-dur-medium) var(--kmaps-spring-a);
+  animation: kmaps-fade-up var(--kmaps-dur-long) var(--kmaps-spring-a) both;
+  animation-delay: 160ms;
+  z-index: 3;
+  will-change: height, transform;
+}
+.kmaps-sheet[data-detent='peek'] {
+  height: 28px;
+  /* At peek the sheet shrinks to a centered ~1/3-width gesture-bar pill. */
+  left: 33.33%;
+  right: 33.33%;
+}
+.kmaps-sheet[data-detent='half'],
+.kmaps-sheet[data-detent='full'] {
+  /* Expanded detents stay 1/2 width + centered so long lines remain
+   * readable on wide monitors. */
+  left: 25%;
+  right: 25%;
+}
+.kmaps-sheet[data-detent='half'] { height: 45vh; }
+.kmaps-sheet[data-detent='full'] { height: 90vh; }
+.kmaps-sheet[data-dragging='true'] { transition: none; }
+
+.kmaps-sheet-handle {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  flex-shrink: 0;
+  user-select: none;
+  position: relative;
+  touch-action: none;
+}
+.kmaps-sheet-handle::after {
+  content: '';
+  position: absolute;
+  inset: -8px 0;
+}
+.kmaps-sheet[data-detent='half'] .kmaps-sheet-handle,
+.kmaps-sheet[data-detent='full'] .kmaps-sheet-handle {
+  height: 32px;
+}
+.kmaps-sheet-handle::before {
+  content: '';
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgb(var(--kmaps-fg) / 0.26);
+  transition: background var(--kmaps-dur-quick) var(--kmaps-spring-b),
+              width var(--kmaps-dur-quick) var(--kmaps-spring-b);
+}
+.kmaps-sheet-handle:hover::before,
+.kmaps-sheet[data-dragging='true'] .kmaps-sheet-handle::before {
+  background: rgb(var(--kmaps-fg) / 0.42);
+  width: 52px;
+}
+
+.kmaps-sheet-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px 8px;
+  flex-shrink: 0;
+  position: relative;
+}
+.kmaps-sheet-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: rgb(var(--kmaps-fg-muted));
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color var(--kmaps-dur-quick) var(--kmaps-spring-b),
+              background var(--kmaps-dur-quick) var(--kmaps-spring-b);
+}
+.kmaps-sheet-tab[data-active='true'] {
+  color: rgb(var(--kmaps-fg));
+  background: rgb(var(--kmaps-fg) / 0.08);
+}
+.kmaps-sheet-tab:hover { color: rgb(var(--kmaps-fg)); }
+
+.kmaps-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 16px 20px;
+}
+
+.kmaps-sheet-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 160px;
+  gap: 8px;
+  color: rgb(var(--kmaps-fg-muted));
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ========== Animations ========== */
+
+@keyframes kmaps-fade-down {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes kmaps-fade-in-left {
+  from { opacity: 0; transform: translate(-12px, -50%); }
+  to   { opacity: 1; transform: translate(0, -50%); }
+}
+@keyframes kmaps-fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kmaps-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.kmaps-stagger > * {
+  animation: kmaps-fade var(--kmaps-dur-medium) var(--kmaps-spring-a) both;
+}
+.kmaps-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.kmaps-stagger > *:nth-child(2) { animation-delay: 40ms; }
+.kmaps-stagger > *:nth-child(3) { animation-delay: 80ms; }
+.kmaps-stagger > *:nth-child(4) { animation-delay: 120ms; }
+.kmaps-stagger > *:nth-child(5) { animation-delay: 160ms; }
+
+/* ========== Map viewer utilities ========== */
+
+.kmaps-map-container {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+}
+
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.maplibregl-ctrl-scale {
+  background-color: rgb(255 255 255 / 0.8);
+  font-family: var(--kmaps-font-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  .maplibregl-ctrl-scale {
+    background-color: rgb(0 0 0 / 0.7);
+    color: rgb(230 230 234);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .kmaps-root *,
+  .kmaps-root *::before,
+  .kmaps-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ========== Waypoint pin-drop (map marker, outside .kmaps-root) ==========
+ * Rendered by maplibregl.Marker on append. Lives outside the plugin
+ * scope, so selectors don't carry the .kmaps-root prefix. */
+
+.kmaps-pin-drop {
+  width: 22px;
+  height: 28px;
+  pointer-events: none;
+  transform-origin: 50% 100%;
+  animation: kmaps-pin-drop-in 900ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+.kmaps-pin-drop::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  border-radius: 50%;
+  background: #0A84FF;
+  box-shadow:
+    0 0 0 3px rgba(10, 132, 255, 0.22),
+    0 6px 14px rgba(10, 132, 255, 0.45);
+}
+.kmaps-pin-drop::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 6px;
+  height: 10px;
+  margin-left: -3px;
+  background: #0A84FF;
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+}
+@keyframes kmaps-pin-drop-in {
+  0% { transform: translateY(-56px) scale(0.8); opacity: 0; }
+  55% { transform: translateY(0) scale(1.08); opacity: 1; }
+  75% { transform: translateY(-4px) scale(0.98); }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* ========== GPS puck (map marker, outside .kmaps-root) ==========
+ * Rendered by maplibregl.Marker once live nav lands (v3.1). Soft pulse
+ * to read as "live indicator" rather than a fixed pin. */
+
+.kmaps-gps-puck {
+  width: 26px;
+  height: 26px;
+  pointer-events: none;
+  position: relative;
+}
+.kmaps-gps-puck::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgb(10 132 255 / 0.28);
+  animation: kmaps-puck-pulse 1.6s ease-out infinite;
+}
+.kmaps-gps-puck::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: #0A84FF;
+  box-shadow: 0 0 0 2px #ffffff, 0 4px 12px rgb(10 132 255 / 0.5);
+}
+@keyframes kmaps-puck-pulse {
+  0%   { transform: scale(0.8); opacity: 0.8; }
+  70%  { transform: scale(1.8); opacity: 0; }
+  100% { transform: scale(1.8); opacity: 0; }
 }
