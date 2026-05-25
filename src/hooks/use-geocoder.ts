@@ -96,9 +96,20 @@ export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
     // previous region's still-pointed handle. Also clear the result
     // list so the user doesn't briefly see entries from the previous
     // region while the new DB opens.
+    //
+    // Bump `requestIdRef` too: invalidates any `search()` that's
+    // already past the timer + into its `await` — by the time it
+    // resolves with results from the OLD region's db, its captured
+    // `myId` no longer matches `requestIdRef.current` and the
+    // staleness guard inside the search effect drops it. Without
+    // this bump the only thing keeping a stale result out of state
+    // is the next user-typed query (which bumps the id on its way),
+    // and during the open window between region change and the
+    // next keystroke a stale resolve would commit.
     const prev = dbRef.current
     dbRef.current = null
     dbRegionRef.current = null
+    requestIdRef.current += 1
     setState({ results: [], loading: false, error: null })
 
     ;(async () => {
