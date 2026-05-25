@@ -30,7 +30,16 @@ export type MapTheme = 'light' | 'dark'
 /** Protomaps hosts the glyphs + sprite assets used by the basemap
  *  flavors. These remain over HTTPS because they're small + cached by
  *  the browser, and bundling them into the plugin would push the
- *  distribution past the user-friendly size budget. */
+ *  distribution past the user-friendly size budget.
+ *
+ *  TODO(offline-assets): atlas-maps positions as "offline-only"; a
+ *  cache miss on these URLs (first launch with no network, cache
+ *  eviction, incognito) renders an unlabeled map silently. Options to
+ *  close the gap: bundle the glyph PBFs + sprite JSON/PNG into the
+ *  plugin (~5-15 MB depending on which fontstacks ship), or stage them
+ *  into the vault during region install (alongside planetiler output).
+ *  Tracked as a follow-up slice; out of scope for the initial map
+ *  viewer ship. */
 const GLYPHS_URL =
   'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf'
 

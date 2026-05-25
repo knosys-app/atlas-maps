@@ -17,7 +17,7 @@
  * top with the install-a-region CTA.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ComponentType } from 'react'
 import type { PluginAPI, SharedDependencies } from '@/types'
 import { installEngineIfMissing } from '@/routing/engine'
@@ -42,9 +42,15 @@ export function createMapsPage(
     // Holding it here means the slice 6 change is local to MapsPage.
     const [activeRegionId] = useState<string | null>(null)
     const [pmtilesUrl] = useState<string | null>(null)
-    const [, setEngineReady] = useState<boolean | null>(null)
-    const [, setEngineError] = useState<string | null>(null)
-    const [, setEnginePhase] = useState<string>('')
+    // Engine pre-warm status lives in refs rather than React state
+    // because nothing in the render body currently reads it — using
+    // state would schedule a re-render of MapsPage (and therefore
+    // MapViewer / EmptyState / the chrome) on every progress event
+    // for no UI benefit. Once an engine-status UI lands these can
+    // convert to state and drive whichever component displays them.
+    const engineReadyRef = useRef<boolean | null>(null)
+    const engineErrorRef = useRef<string | null>(null)
+    const enginePhaseRef = useRef<string>('')
 
     // Hydrate persisted settings on mount. The store guards against
     // double-hydration, so a fast re-render won't refire the IPC.
@@ -61,13 +67,13 @@ export function createMapsPage(
         try {
           await installEngineIfMissing(api, (phase, _percent, message) => {
             if (cancelled) return
-            setEnginePhase(message ? `${phase}: ${message}` : phase)
+            enginePhaseRef.current = message ? `${phase}: ${message}` : phase
           })
-          if (!cancelled) setEngineReady(true)
+          if (!cancelled) engineReadyRef.current = true
         } catch (err) {
           if (cancelled) return
-          setEngineReady(false)
-          setEngineError((err as Error).message)
+          engineReadyRef.current = false
+          engineErrorRef.current = (err as Error).message
         }
       })()
       return () => {

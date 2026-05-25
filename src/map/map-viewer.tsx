@@ -53,11 +53,18 @@ export interface MapViewerProps {
 export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl }) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MaplibreMap | null>(null)
-  // Latest regionId — read inside the save-viewport handler so the
-  // throttled write always uses the current key without re-subscribing
-  // the listener on every prop change.
+  // Latest regionId / pmtilesUrl — read inside the mount IIFE + the
+  // throttled save handler so we always pick up the current values
+  // even when they change during the async `loadViewport` window. The
+  // closures wouldn't see prop updates that arrive before the map
+  // instance exists (the hot-swap effect below short-circuits while
+  // `mapRef.current` is still null), so without the ref the map
+  // would mount with whatever the props were at React-mount time and
+  // any concurrent activate would be silently lost.
   const regionIdRef = useRef(regionId)
   regionIdRef.current = regionId
+  const pmtilesUrlRef = useRef(pmtilesUrl)
+  pmtilesUrlRef.current = pmtilesUrl
 
   // Mount MapLibre once. The map instance lives for the lifetime of
   // the MapViewer component; style + tile source swaps happen through
@@ -73,7 +80,10 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl }) => 
       if (cancelled || !containerRef.current) return
 
       const theme = currentMapTheme()
-      const style = buildPlanetStyle(pmtilesUrl, theme)
+      // Use the ref, not the captured prop — `pmtilesUrl` may have
+      // changed during `await loadViewport`. The hot-swap effect's
+      // `mapRef.current` null-check would otherwise drop the update.
+      const style = buildPlanetStyle(pmtilesUrlRef.current, theme)
 
       const map = new maplibregl.Map({
         container: containerRef.current,
@@ -93,17 +103,23 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl }) => 
         'bottom-left',
       )
 
-      // Save viewport on each idle so a session-end browser close also
-      // captures the last view. `idle` fires after every interaction
-      // settles (move/zoom/rotate/tilt).
+      // Save viewport on idle, debounced. `idle` fires after every
+      // pan / zoom / rotate / tilt — without back-pressure we'd hit
+      // `api.storage.set` dozens of times per minute on active use.
+      // 500 ms trailing debounce preserves the "capture before
+      // session-end close" intent while collapsing redundant writes.
+      let saveTimer: ReturnType<typeof setTimeout> | null = null
       map.on('idle', () => {
-        const center = map.getCenter()
-        void saveViewport(api, regionIdRef.current, {
-          center: [center.lng, center.lat],
-          zoom: map.getZoom(),
-          bearing: map.getBearing(),
-          pitch: map.getPitch(),
-        })
+        if (saveTimer !== null) clearTimeout(saveTimer)
+        saveTimer = setTimeout(() => {
+          const center = map.getCenter()
+          void saveViewport(api, regionIdRef.current, {
+            center: [center.lng, center.lat],
+            zoom: map.getZoom(),
+            bearing: map.getBearing(),
+            pitch: map.getPitch(),
+          })
+        }, 500)
       })
 
       mapRef.current = map
