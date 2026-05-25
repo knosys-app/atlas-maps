@@ -24,7 +24,16 @@ export type PlaceSource = 'osm' | 'openaddresses' | 'nominatim'
 
 /** A single geocoder result. */
 export interface PlaceResult {
+  /** Short place name. For OSM / OpenAddresses rows this is the stored
+   *  `places.name`; for Nominatim rows this is the first comma-segment
+   *  of `display_name` (the place name proper, e.g. "Pike Place Market"
+   *  rather than the full address). Kept short so cross-tier dedupe
+   *  via `normalizeName` actually matches. */
   name: string
+  /** Optional address tail (city / region / country). Populated by
+   *  Nominatim with the remainder of `display_name` after the first
+   *  comma. UI surfaces it as a subtitle line. */
+  subtitle?: string
   category: PlaceCategory
   latitude: number
   longitude: number

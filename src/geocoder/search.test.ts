@@ -114,6 +114,49 @@ describe('search()', () => {
     expect(result.map((r) => r.name)).toEqual(['Olympia, WA', 'Olympic Sculpture Park'])
   })
 
+  it('swallows a thrown Nominatim implementation and still returns tier-1 results', async () => {
+    const local = [row({ name: 'X' })]
+    const nominatim = vi.fn().mockRejectedValue(new Error('boom'))
+    const result = await search(
+      { query: 'xy' },
+      { db: fakeDb(local), nominatim, isOnline: () => true },
+    )
+    expect(nominatim).toHaveBeenCalledOnce()
+    expect(result.map((r) => r.name)).toEqual(['X'])
+  })
+
+  it('dedupes Nominatim hit against tier-1 FTS hit for the same place', async () => {
+    // Greptile P2: previously, FTS "Pike Place Market" and Nominatim
+    // (which used the full display_name) would land in separate
+    // normalizeName buckets and survive dedupe. With Nominatim now
+    // using the short name, they collide and collapse to one row.
+    const local = [
+      row({
+        name: 'Pike Place Market',
+        latitude: 47.6097,
+        longitude: -122.3422,
+        source: 'osm',
+        importance: 40,
+      }),
+    ]
+    const nominatim = vi.fn().mockResolvedValue([
+      row({
+        name: 'Pike Place Market', // short name from first comma-segment
+        subtitle: 'Belltown, Seattle, King County, Washington, 98101, US',
+        latitude: 47.6097,
+        longitude: -122.3422,
+        source: 'nominatim',
+        importance: 60,
+      }),
+    ])
+    const result = await search(
+      { query: 'pike place' },
+      { db: fakeDb(local), nominatim, isOnline: () => true },
+    )
+    expect(nominatim).toHaveBeenCalledOnce()
+    expect(result).toHaveLength(1)
+  })
+
   it('does not call Nominatim when offline, even if below threshold', async () => {
     const local = [row({ name: 'X' })]
     const nominatim = vi.fn().mockResolvedValue([row({ name: 'Y', source: 'nominatim' })])

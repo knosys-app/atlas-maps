@@ -57,15 +57,27 @@ export async function search(
   const ftsWithDist = attachDistance(ftsRaw, opts.near)
   const ftsDeduped = dedupe(ftsWithDist)
 
-  // --- Tier 2: Nominatim fallback when local hits below threshold + online
+  // --- Tier 2: Nominatim fallback when local hits below threshold + online.
+  // The default implementation (`./nominatim`) is best-effort and swallows
+  // its own errors, but the dep is injectable so a third-party
+  // implementation could throw. Defence-in-depth: catch here so a
+  // single broken tier-2 call can't take down the whole search.
   let merged = ftsDeduped
   if (deps.nominatim && ftsDeduped.length < nominatimThreshold && isOnline()) {
-    const remote = await deps.nominatim(query, opts.near)
+    let remote: PlaceResult[] = []
+    try {
+      remote = await deps.nominatim(query, opts.near)
+    } catch {
+      // Best-effort tier — silent failure, tier-3 may still rescue the
+      // call. Logging the error is the orchestrator caller's job
+      // (the nominatim implementation already logs via api.log).
+    }
     if (remote.length > 0) {
       const remoteWithDist = attachDistance(remote, opts.near)
-      // Nominatim rows are usually disjoint from FTS rows for the same
-      // query (Nominatim returns more international + ambiguous hits),
-      // but dedupe across the merged set just in case.
+      // Cross-tier dedupe: nominatim rows now use the short place name
+      // (first comma-segment of display_name) so they collide with FTS
+      // rows for the same place under `normalizeName` rather than
+      // appearing twice in the merged set.
       merged = dedupe([...ftsDeduped, ...remoteWithDist])
     }
   }

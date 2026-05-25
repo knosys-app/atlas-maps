@@ -84,7 +84,18 @@ export async function nominatimSearch(
   let rows: NominatimRow[]
   try {
     const text = new TextDecoder('utf-8').decode(res.body)
-    rows = JSON.parse(text) as NominatimRow[]
+    const parsed: unknown = JSON.parse(text)
+    if (!Array.isArray(parsed)) {
+      // Nominatim sometimes returns a 200 with an object envelope
+      // (error wrapper, rate-limit hint). The `as` cast wouldn't
+      // catch this, and the subsequent `flatMap` would throw past
+      // the try/catch — propagating the rejection up into the
+      // search orchestrator and breaking tier-3 fallback. Treat
+      // non-array bodies the same as parse failure: log + return [].
+      api.log.warn('geocoder: nominatim returned non-array body')
+      return []
+    }
+    rows = parsed as NominatimRow[]
   } catch (err) {
     api.log.warn('geocoder: nominatim body parse failed', err)
     return []
@@ -98,9 +109,19 @@ function mapRow(row: NominatimRow): PlaceResult[] {
   const lat = Number.parseFloat(row.lat)
   const lon = Number.parseFloat(row.lon)
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return []
+
+  // Split the display_name into "<place name>, <address tail>". The
+  // place name is what FTS rows use, so cross-tier dedupe collapses
+  // tier-1 (local) + tier-2 (Nominatim) hits for the same physical
+  // place. The address tail becomes a subtitle for the UI.
+  const segments = row.display_name.split(',').map((s) => s.trim()).filter(Boolean)
+  const name = segments[0] ?? row.display_name
+  const subtitle = segments.length > 1 ? segments.slice(1).join(', ') : undefined
+
   return [
     {
-      name: row.display_name,
+      name,
+      subtitle,
       category: mapCategory(row),
       latitude: lat,
       longitude: lon,
