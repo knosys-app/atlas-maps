@@ -1,0 +1,165 @@
+/**
+ * useGeocoder — Search card hook.
+ *
+ * Manages opening / closing the per-region `places.db` and runs the
+ * 3-tier search orchestrator against it whenever the user types.
+ *
+ *   - The DB handle is opened once per regionId via
+ *     `api.db.openSqlite`. When `regionId` changes (region switched
+ *     or uninstalled), the previous handle is closed and a fresh
+ *     one opens against the new region.
+ *   - The query is debounced (250 ms) so each keystroke doesn't fire
+ *     an IPC + FTS5 round-trip. Matches the flight-planner pattern.
+ *   - Each issued search carries an abort token; if a newer query
+ *     starts while an older one is in-flight, the older result is
+ *     dropped on arrival. Prevents race conditions where slow
+ *     responses overwrite faster newer ones.
+ *
+ * Failure shape:
+ *   - DB open errors: return empty results + `error` populated.
+ *   - Search errors: ditto.
+ *   - Network failures inside Nominatim: swallowed by `nominatimSearch`
+ *     itself; surfaces as fewer results, not as a hook-level error.
+ */
+
+import { useEffect, useRef, useState } from 'react'
+import type { PluginAPI } from '@/types'
+import { search } from '@/geocoder/search'
+import type { PlaceResult } from '@/geocoder/types'
+import { openPlacesDb, type PlacesDb } from '@/geocoder/places-db'
+import { nominatimSearch } from '@/geocoder/nominatim'
+
+const SEARCH_DEBOUNCE_MS = 250
+const MIN_QUERY_LENGTH = 2
+
+export interface UseGeocoderState {
+  results: PlaceResult[]
+  loading: boolean
+  error: string | null
+}
+
+export interface UseGeocoderOptions {
+  api: PluginAPI
+  /** Active region id. Drives which `places.db` is open. Null → no
+   *  region, so the hook short-circuits and returns empty. */
+  regionId: string | null
+  query: string
+  /** Optional anchor for distance ranking. The geocoder's importance-
+   *  first ordering uses haversine distance as a tiebreak. */
+  near?: { lat: number; lon: number }
+}
+
+export function useGeocoder(opts: UseGeocoderOptions): UseGeocoderState {
+  const { api, regionId, query, near } = opts
+  const [state, setState] = useState<UseGeocoderState>({
+    results: [],
+    loading: false,
+    error: null,
+  })
+
+  const dbRef = useRef<PlacesDb | null>(null)
+  const dbRegionRef = useRef<string | null>(null)
+  // Monotonic id for the latest issued search; a stale response
+  // checks this before committing its results so newer responses
+  // always win.
+  const requestIdRef = useRef(0)
+
+  // Open / close the DB on region change. Closing the previous DB
+  // matters because each handle holds an open SQLite connection in
+  // the main process; leaking them would keep file handles open
+  // until plugin deactivate.
+  useEffect(() => {
+    let cancelled = false
+
+    if (regionId === null) {
+      // Region went away — close any open DB and reset state.
+      const prev = dbRef.current
+      dbRef.current = null
+      dbRegionRef.current = null
+      void prev?.close()
+      setState({ results: [], loading: false, error: null })
+      return
+    }
+
+    if (dbRegionRef.current === regionId) return // already open
+
+    ;(async () => {
+      try {
+        const next = await openPlacesDb(api, regionId)
+        if (cancelled) {
+          void next.close()
+          return
+        }
+        const prev = dbRef.current
+        dbRef.current = next
+        dbRegionRef.current = regionId
+        void prev?.close()
+        setState((s) => ({ ...s, error: null }))
+      } catch (err) {
+        if (cancelled) return
+        api.log.warn(`geocoder: failed to open places.db for ${regionId}`, err)
+        setState({ results: [], loading: false, error: 'Region database unavailable' })
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [api, regionId])
+
+  // Close the DB on unmount. The region-change effect handles the
+  // common case; this catches the unmount path explicitly.
+  useEffect(() => {
+    return () => {
+      const db = dbRef.current
+      dbRef.current = null
+      dbRegionRef.current = null
+      void db?.close()
+    }
+  }, [])
+
+  // Debounced search. Each query bumps `requestIdRef`; only the
+  // most recent in-flight request commits its results to state.
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (trimmed.length < MIN_QUERY_LENGTH) {
+      setState({ results: [], loading: false, error: null })
+      return
+    }
+
+    const db = dbRef.current
+    if (!db) {
+      // DB not yet open (region change in flight). Don't dispatch.
+      setState((s) => ({ ...s, loading: false }))
+      return
+    }
+
+    requestIdRef.current += 1
+    const myId = requestIdRef.current
+    setState((s) => ({ ...s, loading: true }))
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const results = await search(
+            { query: trimmed, near },
+            {
+              db,
+              nominatim: (q, n) => nominatimSearch(api, q, n),
+            },
+          )
+          if (requestIdRef.current !== myId) return // a newer query started
+          setState({ results, loading: false, error: null })
+        } catch (err) {
+          if (requestIdRef.current !== myId) return
+          api.log.warn('geocoder: search failed', err)
+          setState({ results: [], loading: false, error: 'Search failed' })
+        }
+      })()
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => clearTimeout(timer)
+  }, [api, query, near?.lat, near?.lon])
+
+  return state
+}
