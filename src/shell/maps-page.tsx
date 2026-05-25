@@ -24,6 +24,10 @@ import { installEngineIfMissing } from '@/routing/engine'
 import { useSettingsStore, type MapsSettings } from '@/store/settings-store'
 import { MapViewer } from '@/map/map-viewer'
 import { createEmptyState } from '@/map/empty-state'
+import { createRouteRail } from '@/rail/route-rail'
+import { createSearchCard } from '@/rail/search-card'
+import { createRecentsCard, type RecentRoute } from '@/rail/recents-card'
+import { createBriefingCard, type BriefingPreview } from '@/rail/briefing-card'
 import { MapsShell } from './maps-shell'
 import { createPlanPill } from './plan-pill'
 import { createLayersButton } from './layers-button'
@@ -35,6 +39,10 @@ export function createMapsPage(
   const PlanPill = createPlanPill(Shared)
   const LayersButton = createLayersButton(Shared)
   const EmptyState = createEmptyState(Shared)
+  const { RouteRail, RailSection } = createRouteRail(Shared)
+  const SearchCard = createSearchCard(Shared)
+  const RecentsCard = createRecentsCard(Shared)
+  const BriefingCard = createBriefingCard(Shared)
 
   const MapsPage: ComponentType<unknown> = () => {
     const settings = useSettingsStore()
@@ -106,20 +114,44 @@ export function createMapsPage(
       </div>
     )
 
+    // Route preview is null until slice 3+ wires real routing — Briefing
+    // returns null on null preview, so the rail starts with Search +
+    // Recents only. Recents will populate from history-store in a
+    // follow-on slice.
+    const briefingPreview: BriefingPreview | null = null
+    const recents: RecentRoute[] = []
+    const hasActiveRegion = activeRegionId !== null
+
     return (
       <MapsShell map={mapLayer}>
         <PlanPill
           preview={null}
           onSearchClick={() => {
-            // Rail isn't built yet; this is a no-op until the search
-            // card lands. Logging gives us a confirmation hook during
-            // smoke.
-            api.log.info('PlanPill search clicked (rail not yet wired)')
+            // No-op: search input lives in the rail's SearchCard now.
+            // Future v3.1+ may auto-focus that input from here.
+            api.log.info('PlanPill search clicked')
           }}
           onClearRoute={() => {
             // No route to clear yet.
           }}
         />
+
+        {/* Rail hidden until at least one region is installed. The empty
+         *  state owns the screen pre-install (matches Apple Maps'
+         *  progressive-reveal pattern); rail appears once the user has
+         *  a region they can search / route against. */}
+        {hasActiveRegion ? (
+          <RouteRail>
+            <BriefingCard preview={briefingPreview} />
+            <RailSection title="Search">
+              <SearchCard />
+            </RailSection>
+            <RailSection title="Recents">
+              <RecentsCard recents={recents} />
+            </RailSection>
+          </RouteRail>
+        ) : null}
+
         <LayersButton
           settings={{
             profile: settings.profile,
