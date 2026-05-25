@@ -126,6 +126,11 @@ export const useSavedStore = create<SavedStore>((set, get) => ({
     } catch (err) {
       api.log.warn('saved: add persist failed, rolling back', err)
       set({ destinations: prev })
+      // Re-throw after rollback so callers don't act on a ghost
+      // entry. If slice 3d's Save CTA navigated to Briefing using
+      // the returned `dest`, the user would land on an entry that
+      // doesn't exist in either the in-memory store or the vault.
+      throw err
     }
     return dest
   },
