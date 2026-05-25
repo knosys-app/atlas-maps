@@ -45,6 +45,10 @@ import {
   ROUTE_LINE_MAIN_LAYER_ID,
   type RouteLineGeometry,
 } from './layers/route-line-layer'
+import {
+  installPmtilesProtocol,
+  ensurePmtilesForUrl,
+} from './cached-pmtiles-protocol'
 
 export interface MapViewerProps {
   api: PluginAPI
@@ -96,6 +100,10 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
 
     let cancelled = false
     ensureMaplibreWorker()
+    // Register the `pmtiles://` protocol before any style references
+    // it. Idempotent — subsequent MapViewer mounts (HMR, route
+    // re-entry) hit the no-op fast path inside.
+    installPmtilesProtocol()
 
     ;(async () => {
       const saved = await loadViewport(api, regionIdRef.current)
@@ -105,7 +113,15 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
       // Use the ref, not the captured prop — `pmtilesUrl` may have
       // changed during `await loadViewport`. The hot-swap effect's
       // `mapRef.current` null-check would otherwise drop the update.
-      const style = buildPlanetStyle(pmtilesUrlRef.current, theme)
+      const initialPmtiles = pmtilesUrlRef.current
+      if (initialPmtiles) {
+        // Bind the vault-backed PMTiles source to this URL before
+        // the style references it. Without this, MapLibre would
+        // construct a default FetchSource that HTTP-GETs the path
+        // as a URL — 404 against our vault scheme.
+        ensurePmtilesForUrl(api, initialPmtiles)
+      }
+      const style = buildPlanetStyle(initialPmtiles, theme)
 
       const map = new maplibregl.Map({
         container: containerRef.current,
@@ -191,9 +207,15 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+    if (pmtilesUrl) {
+      // Bind the vault source for the new URL before setStyle hits
+      // the PMTiles protocol handler. ensurePmtilesForUrl is
+      // idempotent — repeat calls with the same URL no-op.
+      ensurePmtilesForUrl(api, pmtilesUrl)
+    }
     const theme = currentMapTheme()
     map.setStyle(buildPlanetStyle(pmtilesUrl, theme))
-  }, [pmtilesUrl])
+  }, [api, pmtilesUrl])
 
   // Push route-line geometry updates after the map exists. Skips when
   // the layer hasn't been added yet (initial-load hasn't fired) — in
@@ -247,6 +269,13 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
     const handler = () => {
       const m = mapRef.current
       if (!m) return
+      if (pmtilesUrl) {
+        // Same ensure-before-setStyle as the pmtilesUrl effect — a
+        // theme change still routes through setStyle, which will
+        // request tiles via the pmtiles protocol once the new style
+        // loads. Idempotent registrations skip re-binding.
+        ensurePmtilesForUrl(api, pmtilesUrl)
+      }
       m.setStyle(buildPlanetStyle(pmtilesUrl, currentMapTheme()))
     }
     mq?.addEventListener('change', handler)
@@ -264,7 +293,7 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
       mq?.removeEventListener('change', handler)
       obs.disconnect()
     }
-  }, [pmtilesUrl])
+  }, [api, pmtilesUrl])
 
   return (
     <div
