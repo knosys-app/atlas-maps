@@ -46,16 +46,39 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   async hydrate(api: PluginAPI) {
     if (get().hydrated) return
+    // Snapshot the value of each persisted field BEFORE the async read
+    // so we can detect updates that arrived in-flight. A user who opens
+    // the Layers popover and toggles a setting before `api.storage.get`
+    // resolves would otherwise see their choice silently revert when
+    // hydrate's terminal `set` overwrites with the (now stale) read.
+    // The user's `update` already persisted the change to storage, so
+    // their value is the authoritative one even though our `get` was
+    // dispatched too early to see it.
+    const before: MapsSettings = {
+      profile: get().profile,
+      mapStyle: get().mapStyle,
+      units: get().units,
+    }
     try {
       const stored = await api.storage.get<MapsSettings>(STORAGE_KEY)
-      if (stored) {
-        // Merge in defaults to tolerate forward-compatible storage schemas
-        // — if we add a new setting field, missing values fall back rather
-        // than rejecting the whole blob.
-        set({ ...DEFAULT_SETTINGS, ...stored, hydrated: true })
-      } else {
-        set({ hydrated: true })
-      }
+      // Functional `set` so we read the CURRENT state (which may have
+      // drifted from `before` due to an in-flight `update`). Build the
+      // hydrated value from defaults + stored, then restore any field
+      // that drifted — those are the writes we'd otherwise clobber.
+      set((current) => {
+        // Defaults underlie everything (tolerates forward-compatible
+        // schemas: missing fields in `stored` fall back rather than
+        // rejecting the whole blob). Then per-field rebase: any field
+        // that changed between the pre-await snapshot and now wins
+        // over the stored read, because `update` already persisted it.
+        const base: MapsSettings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) }
+        return {
+          profile: current.profile !== before.profile ? current.profile : base.profile,
+          mapStyle: current.mapStyle !== before.mapStyle ? current.mapStyle : base.mapStyle,
+          units: current.units !== before.units ? current.units : base.units,
+          hydrated: true,
+        }
+      })
     } catch (err) {
       api.log.warn('settings: hydrate failed', err)
       set({ hydrated: true })
