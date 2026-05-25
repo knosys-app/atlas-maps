@@ -32,6 +32,7 @@ import { createSavedCard } from '@/rail/saved-card'
 import { createRouteCard, type RouteFromPoint } from '@/rail/route-card'
 import { useSavedStore } from '@/store/saved-store'
 import { useRouteStore } from '@/store/route-store'
+import { useRegionStore } from '@/regions/region-store'
 import { STARTER_REGIONS } from '@/data/regions'
 import { toDisplayStep } from '@/routing/step-display'
 import type { RouteProfile } from '@/routing/types'
@@ -62,9 +63,15 @@ export function createMapsPage(
 
   const MapsPage: ComponentType<unknown> = () => {
     const settings = useSettingsStore()
-    // Region state stub until slice 6 wires real region detection.
-    // Holding it here means the slice 6 change is local to MapsPage.
-    const [activeRegionId] = useState<string | null>(null)
+    const regions = useRegionStore()
+    // Active region drives the rail/sheet visibility gate AND which
+    // region's places.db the geocoder opens. Sourced from the region
+    // store which hydrates from the vault on mount (slice 6a) and
+    // gains install/delete actions in slice 6b. `pmtilesUrl` stays
+    // null until slice 2b registers the `pmtiles://` protocol —
+    // passing the vault path here without the protocol wired up
+    // would just print a 404 in the console.
+    const activeRegionId = regions.activeRegionId
     const [pmtilesUrl] = useState<string | null>(null)
     // Engine pre-warm status lives in refs rather than React state
     // because nothing in the render body currently reads it — using
@@ -79,12 +86,15 @@ export function createMapsPage(
     const saved = useSavedStore()
     const route = useRouteStore()
 
-    // Hydrate persisted settings + saved destinations on mount. Each
-    // store guards against double-hydration so a fast re-render won't
-    // refire the underlying IPC.
+    // Hydrate persisted settings + saved destinations + installed
+    // regions on mount. Each store guards against double-hydration so
+    // a fast re-render won't refire the underlying IPC. The Settings
+    // panel also hydrates the region store independently — whichever
+    // mounts first wins, the other call no-ops.
     useEffect(() => {
       void settings.hydrate(api)
       void saved.hydrate(api)
+      void regions.hydrate(api)
     }, [])
 
     // Pre-warm the routing engine. Non-fatal failure — the user can
