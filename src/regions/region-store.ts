@@ -54,6 +54,12 @@ interface RegionStore {
   hydrated: boolean
   hydrate(api: PluginAPI): Promise<void>
   setActive(api: PluginAPI, regionId: string | null): Promise<void>
+  /** Re-read the installed list from the vault. Called by the stub
+   *  installer / slice 6b orchestrator after install or uninstall
+   *  so the Settings panel reflects the new vault state. Also
+   *  validates `activeRegionId` against the new list — drops it if
+   *  the active region was removed. */
+  refreshInstalled(api: PluginAPI): Promise<void>
 }
 
 export const useRegionStore = create<RegionStore>((set, get) => ({
@@ -119,6 +125,31 @@ export const useRegionStore = create<RegionStore>((set, get) => ({
     })()
 
     return inFlightHydrate
+  },
+
+  async refreshInstalled(api: PluginAPI) {
+    try {
+      const installed = await listInstalledRegions(api)
+      // Validate active against the new installed list. If the
+      // active region was just uninstalled, drop the active id
+      // so the rail collapses and the chrome falls back to the
+      // empty state. Persist the drop too (mirrors the hydrate
+      // path's stale-id cleanup).
+      const active = get().activeRegionId
+      const activeStillExists =
+        active !== null && installed.some((r) => r.regionId === active)
+      if (active !== null && !activeStillExists) {
+        api.log.info(
+          `regions: clearing activeRegionId "${active}" after refresh — region no longer installed`,
+        )
+        await api.storage.delete(SETTINGS_KEYS.activeRegionId).catch(() => {})
+        set({ installed, activeRegionId: null })
+      } else {
+        set({ installed })
+      }
+    } catch (err) {
+      api.log.warn('regions: refreshInstalled failed', err)
+    }
   },
 
   async setActive(api: PluginAPI, regionId: string | null) {
