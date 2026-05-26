@@ -14,15 +14,18 @@
  *     toggle) without remounting the canvas.
  *
  * The `pmtilesUrl` prop drives the active style. When null (no region
- * installed, or before slice 6's per-region PMTiles plumbing lands)
- * the canvas mounts with an empty style — MapLibre renders nothing,
- * and the parent overlays `EmptyState` to fill the void.
+ * installed) the canvas mounts with an empty style — MapLibre renders
+ * nothing, and the parent overlays `EmptyState` to fill the void.
  *
- * Per-region PMTiles + the `pmtiles://` protocol registration land
- * with slice 2b (vault-source + protocol install) once
- * `api.vault.readFileBytes` is confirmed to support range reads. For
- * now this component is style-driven only; passing `pmtilesUrl` is a
- * no-op without the protocol handler.
+ * Per-region PMTiles are served via the `pmtiles://` protocol
+ * registered in `cached-pmtiles-protocol.ts`. The vault-backed source
+ * reads the full archive into memory on first access (50–150 MB for
+ * state-sized regions) and slices for subsequent tile requests. After
+ * a region switch the MapViewer calls `releaseUnusedPmtiles` to drop
+ * the previous archive's cached buffer so memory stays bounded across
+ * a region-switching session. True per-tile range reads are a
+ * follow-up once `api.vault.readFileBytesRange` lands; until then,
+ * whole-archive caching is the pragmatic surface.
  */
 
 import { useEffect, useRef } from 'react'
@@ -48,6 +51,7 @@ import {
 import {
   installPmtilesProtocol,
   ensurePmtilesForUrl,
+  releaseUnusedPmtiles,
 } from './cached-pmtiles-protocol'
 
 export interface MapViewerProps {
@@ -215,6 +219,13 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
     }
     const theme = currentMapTheme()
     map.setStyle(buildPlanetStyle(pmtilesUrl, theme))
+    // Drop any previously-registered archives so a region-switch
+    // session (A → B → C) doesn't accumulate every visited archive's
+    // ~50-150 MB buffer in the renderer heap. Switching back to a
+    // dropped archive re-reads it; cheap relative to leaking memory.
+    // The current pmtilesUrl is preserved (or null when no region is
+    // active, which evicts everything).
+    releaseUnusedPmtiles(pmtilesUrl)
   }, [api, pmtilesUrl])
 
   // Push route-line geometry updates after the map exists. Skips when
