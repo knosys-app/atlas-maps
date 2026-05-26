@@ -61,7 +61,11 @@ const skipBuild = args.includes('--skip-build')
 // already gone by then.
 const reindexIdx = args.indexOf('--reindex')
 const reindexVersion = reindexIdx >= 0 ? args[reindexIdx + 1] : null
-if (reindexIdx >= 0 && !reindexVersion) {
+// Reject an adjacent flag (e.g. `--reindex --dry-run`) — the
+// missing-value check below catches `undefined` but a flag string
+// is truthy and would slip through, producing a confusing
+// `gh release download "v--dry-run"` failure deep in the script.
+if (reindexIdx >= 0 && (!reindexVersion || reindexVersion.startsWith('--'))) {
   console.error('--reindex requires a version (e.g. --reindex 3.0.0-alpha.1)')
   process.exit(1)
 }
@@ -390,8 +394,11 @@ function downloadReleasedTarball(version) {
   step(`Downloading released tarball v${version}`)
   // gh writes the file to cwd by default. Existing file at the
   // target path is overwritten — fine because we sha256 right after.
+  // `--repo` makes the target explicit so an off-cwd invocation
+  // doesn't silently target a different repo via remote inference.
   sh(
-    `gh release download "v${version}" --pattern "${tarball}" --clobber`,
+    `gh release download "v${version}" --repo knosys-app/atlas-maps ` +
+      `--pattern "${tarball}" --clobber`,
     { silent: true },
   )
   if (!existsSync(tarball)) {
