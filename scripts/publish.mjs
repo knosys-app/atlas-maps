@@ -317,8 +317,15 @@ function openIndexPR(version, tarball, sha) {
     entry.knosysApi = 3
     entry.downloadUrl = downloadUrl
     entry.downloadSha256 = sha
+    // Description scoped to what THIS version actually ships +
+    // explicit about what the requested vault permissions are used
+    // for. The "[ALPHA]" prefix signals pre-release status in the
+    // Browse Store card since the registry schema has no
+    // pre-release flag of its own.
     entry.description =
-      'Offline driving navigation — routes (v3.0), turn-by-turn + GPS (v3.1+).'
+      '[ALPHA] Offline driving navigation with route preview. ' +
+      'Stores per-region routing tiles, vector map tiles, and an ' +
+      'address geocoder in your vault. Turn-by-turn + GPS ship in v3.1.'
     entry.permissions = [
       'storage',
       'network',
@@ -429,6 +436,11 @@ function restoreFiles(tarball) {
 
 async function reindexOnly(version) {
   console.log(`(REINDEX — opening community-plugins PR for existing v${version})\n`)
+  // Banner so the user knows dry-run is active before the openIndexPR
+  // skip-message fires deep in the flow. The download itself is a
+  // read-only gh call so we let it run even in dry-run — its output
+  // is useful for verifying the right tarball would be picked.
+  if (dryRun) console.log('(DRY RUN — no remote side effects)\n')
   verifyGh()
   // Skip the verifyClean / verifyTagAvailable / bump / build / pack
   // / tag / release steps — they're already done. Just rebuild the
