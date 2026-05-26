@@ -41,7 +41,7 @@
  */
 
 import { execSync } from 'node:child_process'
-import { readFileSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, rmSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -73,8 +73,11 @@ function shTry(cmd, opts = {}) {
 }
 
 function fail(msg) {
-  console.error(`\n✗ ${msg}`)
-  process.exit(1)
+  // Throw rather than process.exit so the outer try/finally in
+  // main() runs `restoreFiles` — otherwise a failure after
+  // bumpVersion leaves package.json/manifest.json bumped in the
+  // working tree, AND the openIndexPR temp clone leaks.
+  throw new Error(msg)
 }
 
 function step(msg) {
@@ -190,8 +193,13 @@ function pack(version) {
     (n) => n.startsWith(`${PLUGIN_ID}-`) && n.endsWith('.tgz'),
   )
   if (candidates.length === 0) fail('npm pack did not produce a tarball')
-  // Pick the most-recent by mtime to avoid grabbing a stale leftover.
-  candidates.sort()
+  // Pick the most-recent by mtime to avoid grabbing a stale
+  // leftover. Lexicographic sort wouldn't work past alpha.9 —
+  // `knosys-maps-3.0.0-alpha.10.tgz` sorts before `…alpha.9.tgz`
+  // alphabetically because '1' < '9', so a stale leftover at
+  // double-digit alphas would silently shadow the freshly-packed
+  // one and end up in the release.
+  candidates.sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs)
   const actual = candidates[candidates.length - 1]
   if (actual !== expected) {
     sh(`mv "${actual}" "${expected}"`, { silent: true })
@@ -219,9 +227,11 @@ function tagAndPush(version) {
 function generateNotes(version) {
   // Find the previous tag for the diff range. Excludes the tag we
   // just created (or are about to in dry-run) so the changelog isn't
-  // empty.
+  // empty. `-vxF` = invert + whole-line + fixed-string: -x prevents
+  // `v3.0.0-alpha.1` matching as a substring of `v3.0.0-alpha.10`,
+  // and -F avoids interpreting `.` as a regex wildcard.
   const previous = shTry(
-    `git tag --sort=-creatordate --list "v*" | grep -v "^v${version}$" | head -1`,
+    `git tag --sort=-creatordate --list "v*" | grep -vxF "v${version}" | head -1`,
   )
   let notes = `Plugin release v${version}.\n`
   if (previous) {
@@ -302,6 +312,18 @@ function openIndexPR(version, tarball, sha) {
     delete entry.requiredApiKeys
 
     writeFileSync(indexPath, JSON.stringify(index, null, 2) + '\n')
+
+    // `git commit` reads user.name/user.email from the local repo
+    // config first, then global. A fresh clone has no local config,
+    // so on a dev box or CI runner without global identity set
+    // `git commit` would die with "Author identity unknown." Pull
+    // the host's global identity (if any) into the local config of
+    // the temp clone; fall back to a bot identity so the commit
+    // succeeds even on a pristine machine.
+    const userName = shTry('git config --global user.name') || 'Knosys Release'
+    const userEmail = shTry('git config --global user.email') || 'release@knosys.app'
+    sh(`git config user.name "${userName}"`, { cwd: tmpDir, silent: true })
+    sh(`git config user.email "${userEmail}"`, { cwd: tmpDir, silent: true })
 
     const branch = `bump-knosys-maps-${version}`
     sh(`git checkout -b "${branch}"`, { cwd: tmpDir, silent: true })
@@ -387,6 +409,14 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err?.stack ?? err)
+  // `fail()` throws Error(msg); print the message in the same
+  // `✗ ...` format the early process.exit version used. Stack
+  // traces only useful for unexpected exceptions — guard by
+  // checking for the `Error` shape we throw.
+  if (err instanceof Error && err.message) {
+    console.error(`\n✗ ${err.message}`)
+  } else {
+    console.error(err)
+  }
   process.exit(1)
 })
