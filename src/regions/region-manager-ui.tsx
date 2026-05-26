@@ -1,35 +1,38 @@
 /**
  * Region manager Settings sub-panel.
  *
- * Read-only listing of installed regions + storage-usage indicator.
- * Mounted inside the host's Settings modal via
+ * Listing of installed regions + storage usage + the dev-mode stub
+ * installer affordance. Mounted via
  * `api.ui.registerSettingsPanel({ id: 'maps-regions', component })`.
  *
  * v3.0 surfaces:
- *   - The list of regions discovered by `region-store.hydrate`
- *     (each renders with byteSize, built-at relative timestamp, and
- *     "addresses" row count when OpenAddresses was imported).
- *   - An "active" affordance per row — clicking marks that region as
- *     active so the rail + sheet + map switch to it.
- *   - The "Install region" CTA, disabled with a tooltip pointing at
- *     slice 6b. The surface needs to be discoverable now so users
- *     know what's coming.
- *
- * Delete is gated to slice 6b alongside install — without the
- * orchestrator there's no way to reinstall a deleted region, so we
- * don't ship a one-way-only destructive affordance.
+ *   - Region list with byteSize, built-at, OA row count (or "OSM
+ *     addresses only" warning when oaImportedAt is null).
+ *   - Per-row Active toggle (radio-style; one active at a time).
+ *   - Per-row Delete — enabled for stub regions (marker:
+ *     `valhallaVersion === 'stub'`). Real regions still surface a
+ *     disabled delete pointing at slice 6b's uninstall flow because
+ *     a one-way delete of a multi-GB build would be regret-inducing.
+ *   - Install popover with a search + STARTER_REGIONS picker. Every
+ *     install in v3.0 is a **stub install** (writes meta.json + an
+ *     empty places.db; no tiles, no PMTiles). Clearly labeled as
+ *     dev-only — slice 6b's real orchestrator replaces this path.
  */
 
+import { useMemo, useState } from 'react'
 import type { FC } from 'react'
 import type { PluginAPI, SharedDependencies } from '@/types'
 import { useRegionStore } from './region-store'
 import { formatBytes, type RegionMeta } from './meta'
+import { STARTER_REGIONS } from '@/data/regions'
+import type { RegionDefinition } from '@/data/regions'
+import { installStubRegion, uninstallStubRegion } from './stub-installer'
 
 export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies) {
   const shadcn = Shared.shadcn as Record<string, FC<any>>
-  const { Button } = shadcn
+  const { Button, Input, Popover, PopoverTrigger, PopoverContent } = shadcn
   const icons = Shared.lucideIcons as Record<string, FC<{ className?: string; style?: object }>>
-  const { Map: MapIcon, Trash2, Download, CheckCircle2, Circle, AlertCircle } = icons
+  const { Map: MapIcon, Trash2, Download, CheckCircle2, Circle, AlertCircle, Search } = icons
 
   const RegionManagerUi: FC<unknown> = () => {
     const regions = useRegionStore()
@@ -41,6 +44,55 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
     Shared.useEffect(() => {
       void regions.hydrate(api)
     }, [])
+
+    // In-flight install/uninstall ids. Both as Sets so concurrent
+    // operations on different rows don't clobber each other — same
+    // pattern the SearchCard uses for save buttons.
+    const [installingIds, setInstallingIds] = useState<Set<string>>(() => new Set())
+    const [uninstallingIds, setUninstallingIds] = useState<Set<string>>(() => new Set())
+    const [installError, setInstallError] = useState<string | null>(null)
+    const [pickerOpen, setPickerOpen] = useState(false)
+
+    const handleStubInstall = async (region: RegionDefinition) => {
+      // Drop redundant clicks while this region's install is in
+      // flight. Button below is also `disabled` while installing;
+      // both checks defend against synthesized click events.
+      if (installingIds.has(region.id)) return
+      setInstallingIds((prev) => new Set(prev).add(region.id))
+      setInstallError(null)
+      try {
+        await installStubRegion(api, region)
+        await regions.refreshInstalled(api)
+        setPickerOpen(false)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        api.log.warn(`stub-install: ${region.id} failed`, err)
+        setInstallError(`${region.displayName}: ${message}`)
+      } finally {
+        setInstallingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(region.id)
+          return next
+        })
+      }
+    }
+
+    const handleUninstall = async (meta: RegionMeta) => {
+      if (uninstallingIds.has(meta.regionId)) return
+      setUninstallingIds((prev) => new Set(prev).add(meta.regionId))
+      try {
+        await uninstallStubRegion(api, meta.regionId)
+        await regions.refreshInstalled(api)
+      } catch (err) {
+        api.log.warn(`stub-uninstall: ${meta.regionId} failed`, err)
+      } finally {
+        setUninstallingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(meta.regionId)
+          return next
+        })
+      }
+    }
 
     const totalBytes = regions.installed.reduce((acc, r) => acc + r.byteSize, 0)
     const hasRegions = regions.installed.length > 0
@@ -97,7 +149,9 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
                 key={meta.regionId}
                 meta={meta}
                 isActive={regions.activeRegionId === meta.regionId}
+                isUninstalling={uninstallingIds.has(meta.regionId)}
                 onActivate={() => void regions.setActive(api, meta.regionId)}
+                onUninstall={() => void handleUninstall(meta)}
                 CheckCircle2={CheckCircle2}
                 Circle={Circle}
                 Trash2={Trash2}
@@ -115,26 +169,62 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
             paddingTop: 12,
             borderTop: '1px solid rgb(var(--kmaps-hairline))',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
+            flexDirection: 'column',
+            gap: 8,
           }}
         >
-          <span
-            style={{ fontSize: 12, color: 'rgb(var(--kmaps-fg-muted))' }}
+          {installError ? (
+            <div
+              role="alert"
+              style={{
+                padding: '6px 10px',
+                borderRadius: 'var(--kmaps-r-sm)',
+                background: 'rgb(var(--kmaps-danger) / 0.08)',
+                color: 'rgb(var(--kmaps-danger))',
+                fontSize: 12,
+              }}
+            >
+              {installError}
+            </div>
+          ) : null}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
           >
-            Region downloads ship with v3.0.0 (offline build pipeline).
-          </span>
-          <Button
-            type="button"
-            disabled
-            aria-disabled="true"
-            title="Region downloads land in slice 6b (Valhalla binaries + planetiler pipeline)"
-            style={{ pointerEvents: 'auto' }}
-          >
-            {Download ? <Download className="w-4 h-4" /> : null}
-            <span style={{ marginLeft: 6 }}>Install a region</span>
-          </Button>
+            <span
+              style={{ fontSize: 12, color: 'rgb(var(--kmaps-fg-muted))' }}
+            >
+              Dev: stub install writes meta.json + an empty places.db.
+              Real install pipeline lands in slice 6b.
+            </span>
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button">
+                  {Download ? <Download className="w-4 h-4" /> : null}
+                  <span style={{ marginLeft: 6 }}>Install a region</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="kmaps-scope"
+                style={{ width: 360, maxHeight: 420, padding: 0 }}
+              >
+                <RegionPicker
+                  installingIds={installingIds}
+                  installedIds={
+                    new Set(regions.installed.map((r) => r.regionId))
+                  }
+                  onPick={handleStubInstall}
+                  Input={Input}
+                  Search={Search}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       </div>
     )
@@ -143,10 +233,162 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
   return RegionManagerUi
 }
 
+interface RegionPickerProps {
+  installingIds: Set<string>
+  installedIds: Set<string>
+  onPick: (region: RegionDefinition) => void
+  Input: FC<any>
+  Search?: FC<{ className?: string; style?: object }>
+}
+
+const RegionPicker: FC<RegionPickerProps> = ({
+  installingIds,
+  installedIds,
+  onPick,
+  Input,
+  Search,
+}) => {
+  const [query, setQuery] = useState('')
+  const trimmed = query.trim().toLowerCase()
+  // Filter the 76-entry STARTER_REGIONS by displayName + id. Done
+  // inline (no useGeocoder) — the manifest is small enough that
+  // filtering on every keystroke is fine.
+  const filtered = useMemo(() => {
+    if (!trimmed) return STARTER_REGIONS
+    return STARTER_REGIONS.filter(
+      (r) =>
+        r.displayName.toLowerCase().includes(trimmed) ||
+        r.id.toLowerCase().includes(trimmed),
+    )
+  }, [trimmed])
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div
+        style={{
+          padding: 10,
+          borderBottom: '1px solid rgb(var(--kmaps-hairline))',
+          position: 'relative',
+        }}
+      >
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: 18,
+            transform: 'translateY(-50%)',
+            color: 'rgb(var(--kmaps-fg-muted))',
+            pointerEvents: 'none',
+            display: 'grid',
+            placeItems: 'center',
+          }}
+        >
+          {Search ? <Search className="w-4 h-4" /> : null}
+        </div>
+        <Input
+          type="text"
+          value={query}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            setQuery(e.target.value)
+          }
+          placeholder="Search regions"
+          aria-label="Filter regions"
+          autoFocus
+          style={{ paddingLeft: 34 }}
+        />
+      </div>
+      <ul
+        aria-label="Regions"
+        style={{
+          listStyle: 'none',
+          padding: 0,
+          margin: 0,
+          overflowY: 'auto',
+          maxHeight: 340,
+        }}
+      >
+        {filtered.length === 0 ? (
+          <li
+            role="status"
+            aria-live="polite"
+            style={{
+              padding: '12px 14px',
+              fontSize: 12,
+              color: 'rgb(var(--kmaps-fg-muted))',
+            }}
+          >
+            No matches
+          </li>
+        ) : (
+          filtered.map((r) => {
+            const installing = installingIds.has(r.id)
+            const alreadyInstalled = installedIds.has(r.id)
+            const disabled = installing || alreadyInstalled
+            return (
+              <li key={r.id} style={{ display: 'block' }}>
+                <button
+                  type="button"
+                  onClick={() => onPick(r)}
+                  disabled={disabled}
+                  aria-busy={installing || undefined}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '8px 14px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: alreadyInstalled
+                      ? 'rgb(var(--kmaps-fg-faint))'
+                      : 'inherit',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    font: 'inherit',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!disabled) {
+                      e.currentTarget.style.background =
+                        'rgb(var(--kmaps-fg) / 0.05)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent'
+                  }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    {r.displayName}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: 'rgb(var(--kmaps-fg-muted))',
+                      fontFamily: 'var(--kmaps-font-mono)',
+                    }}
+                  >
+                    {alreadyInstalled
+                      ? 'Installed'
+                      : installing
+                      ? 'Installing…'
+                      : r.id}
+                  </span>
+                </button>
+              </li>
+            )
+          })
+        )}
+      </ul>
+    </div>
+  )
+}
+
 interface RegionRowProps {
   meta: RegionMeta
   isActive: boolean
+  isUninstalling: boolean
   onActivate: () => void
+  onUninstall: () => void
   CheckCircle2?: FC<{ className?: string; style?: object }>
   Circle?: FC<{ className?: string; style?: object }>
   Trash2?: FC<{ className?: string; style?: object }>
@@ -156,12 +398,21 @@ interface RegionRowProps {
 const RegionRow: FC<RegionRowProps> = ({
   meta,
   isActive,
+  isUninstalling,
   onActivate,
+  onUninstall,
   CheckCircle2,
   Circle,
   Trash2,
   AlertCircle,
 }) => {
+  // Only stub installs (marker: valhallaVersion === 'stub') can be
+  // deleted in v3.0 — uninstallStubRegion just removes meta.json
+  // + the empty places.db. Real regions (slice 6b) write multi-GB
+  // tiles + PMTiles that don't have a corresponding install path
+  // yet, so a one-way delete would be regret-inducing. Tooltip
+  // explains.
+  const isStub = meta.valhallaVersion === 'stub'
   const ActiveIcon = isActive ? CheckCircle2 : Circle
   const oaMissing = !meta.oaImportedAt
   return (
@@ -263,21 +514,44 @@ const RegionRow: FC<RegionRowProps> = ({
       </span>
       <button
         type="button"
-        disabled
-        aria-disabled="true"
+        onClick={isStub && !isUninstalling ? onUninstall : undefined}
+        disabled={!isStub || isUninstalling}
+        aria-disabled={!isStub || isUninstalling || undefined}
+        aria-busy={isUninstalling || undefined}
         aria-label={`Delete ${meta.regionId}`}
-        title="Region delete arrives in slice 6b (paired with re-install affordance)"
+        title={
+          isStub
+            ? isUninstalling
+              ? 'Uninstalling…'
+              : 'Remove stub region (meta.json + empty places.db)'
+            : 'Delete arrives in slice 6b for real regions (paired with the install pipeline)'
+        }
         style={{
           width: 28,
           height: 28,
           padding: 0,
           background: 'transparent',
           border: 'none',
-          color: 'rgb(var(--kmaps-fg-faint))',
-          cursor: 'not-allowed',
+          color: isStub
+            ? isUninstalling
+              ? 'rgb(var(--kmaps-fg-faint))'
+              : 'rgb(var(--kmaps-fg-muted))'
+            : 'rgb(var(--kmaps-fg-faint))',
+          cursor: !isStub || isUninstalling ? 'not-allowed' : 'pointer',
           display: 'grid',
           placeItems: 'center',
           borderRadius: 'var(--kmaps-r-sm)',
+          opacity: isUninstalling ? 0.4 : 1,
+        }}
+        onMouseEnter={(e) => {
+          if (isStub && !isUninstalling) {
+            e.currentTarget.style.color = 'rgb(var(--kmaps-danger))'
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = isStub
+            ? 'rgb(var(--kmaps-fg-muted))'
+            : 'rgb(var(--kmaps-fg-faint))'
         }}
       >
         {Trash2 ? <Trash2 className="w-4 h-4" /> : null}
