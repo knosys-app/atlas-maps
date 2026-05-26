@@ -108,20 +108,27 @@ export async function installStubRegion(
   }
 }
 
-/** Remove a stub region from the vault. Deletes meta.json + places.db;
- *  best-effort cleanup of any other files at the region's path is
- *  out of scope (the stub doesn't create them). Idempotent — missing
- *  files don't throw. */
+/** Remove a stub region from the vault.
+ *
+ *  meta.json is the source of truth for "is this region installed" —
+ *  listInstalledRegions enumerates by reading it. Failure to delete
+ *  meta re-throws so the caller can surface a visible error;
+ *  otherwise the row would persist in the Settings panel after the
+ *  user clicked Delete with no indication of what went wrong.
+ *
+ *  places.db is best-effort: a stub install that failed mid-creation
+ *  may have left a meta.json without a matching places.db, so an
+ *  ENOENT here shouldn't fail the whole uninstall — the user's
+ *  intent was already satisfied by deleting meta.json. */
 export async function uninstallStubRegion(
   api: PluginAPI,
   regionId: string,
 ): Promise<void> {
-  // Both deletes catch their own errors so a missing file (e.g.
-  // half-installed stub, or a region the user manually cleaned up
-  // outside the plugin) doesn't block the other delete.
-  await api.vault.deleteFile(VAULT_PATHS.regionMeta(regionId)).catch((err) => {
-    api.log.debug(`stub-uninstall: meta.json delete failed for ${regionId}`, err)
-  })
+  // Throws on real delete failure (permissions, IO error). The
+  // handleUninstall caller catches + surfaces.
+  await api.vault.deleteFile(VAULT_PATHS.regionMeta(regionId))
+  // Tolerate any failure here. Log so the failure mode stays
+  // observable in the plugin log.
   await api.vault.deleteFile(VAULT_PATHS.regionGeocoder(regionId)).catch((err) => {
     api.log.debug(`stub-uninstall: places.db delete failed for ${regionId}`, err)
   })

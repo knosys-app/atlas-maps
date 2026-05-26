@@ -50,7 +50,13 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
     // pattern the SearchCard uses for save buttons.
     const [installingIds, setInstallingIds] = useState<Set<string>>(() => new Set())
     const [uninstallingIds, setUninstallingIds] = useState<Set<string>>(() => new Set())
-    const [installError, setInstallError] = useState<string | null>(null)
+    // Errors keyed by region id so concurrent failures on different
+    // rows don't silently overwrite each other. installErrors render
+    // stacked above the install row (the picker may be closed by
+    // then); uninstallErrors render inline in the row's own area so
+    // they're visually attached to the affected region.
+    const [installErrors, setInstallErrors] = useState<Map<string, string>>(() => new Map())
+    const [uninstallErrors, setUninstallErrors] = useState<Map<string, string>>(() => new Map())
     const [pickerOpen, setPickerOpen] = useState(false)
 
     const handleStubInstall = async (region: RegionDefinition) => {
@@ -59,7 +65,16 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
       // both checks defend against synthesized click events.
       if (installingIds.has(region.id)) return
       setInstallingIds((prev) => new Set(prev).add(region.id))
-      setInstallError(null)
+      // Clear THIS region's prior error (if any) on retry — leave
+      // other regions' errors intact, matching the per-row Set
+      // tracking model. SearchCard's save-error tracking uses the
+      // same shape.
+      setInstallErrors((prev) => {
+        if (!prev.has(region.id)) return prev
+        const next = new Map(prev)
+        next.delete(region.id)
+        return next
+      })
       try {
         await installStubRegion(api, region)
         await regions.refreshInstalled(api)
@@ -67,7 +82,11 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error'
         api.log.warn(`stub-install: ${region.id} failed`, err)
-        setInstallError(`${region.displayName}: ${message}`)
+        setInstallErrors((prev) => {
+          const next = new Map(prev)
+          next.set(region.id, `${region.displayName}: ${message}`)
+          return next
+        })
       } finally {
         setInstallingIds((prev) => {
           const next = new Set(prev)
@@ -80,11 +99,24 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
     const handleUninstall = async (meta: RegionMeta) => {
       if (uninstallingIds.has(meta.regionId)) return
       setUninstallingIds((prev) => new Set(prev).add(meta.regionId))
+      // Clear any prior uninstall error for this region on retry.
+      setUninstallErrors((prev) => {
+        if (!prev.has(meta.regionId)) return prev
+        const next = new Map(prev)
+        next.delete(meta.regionId)
+        return next
+      })
       try {
         await uninstallStubRegion(api, meta.regionId)
         await regions.refreshInstalled(api)
       } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
         api.log.warn(`stub-uninstall: ${meta.regionId} failed`, err)
+        setUninstallErrors((prev) => {
+          const next = new Map(prev)
+          next.set(meta.regionId, message)
+          return next
+        })
       } finally {
         setUninstallingIds((prev) => {
           const next = new Set(prev)
@@ -150,6 +182,7 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
                 meta={meta}
                 isActive={regions.activeRegionId === meta.regionId}
                 isUninstalling={uninstallingIds.has(meta.regionId)}
+                uninstallError={uninstallErrors.get(meta.regionId)}
                 onActivate={() => void regions.setActive(api, meta.regionId)}
                 onUninstall={() => void handleUninstall(meta)}
                 CheckCircle2={CheckCircle2}
@@ -173,18 +206,26 @@ export function createRegionManagerUi(api: PluginAPI, Shared: SharedDependencies
             gap: 8,
           }}
         >
-          {installError ? (
-            <div
-              role="alert"
-              style={{
-                padding: '6px 10px',
-                borderRadius: 'var(--kmaps-r-sm)',
-                background: 'rgb(var(--kmaps-danger) / 0.08)',
-                color: 'rgb(var(--kmaps-danger))',
-                fontSize: 12,
-              }}
-            >
-              {installError}
+          {installErrors.size > 0 ? (
+            // Stack all in-flight install errors so concurrent
+            // failures on different regions are each visible. Each
+            // error clears on retry of THAT region (or on success).
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {Array.from(installErrors.values()).map((msg, i) => (
+                <div
+                  key={i}
+                  role="alert"
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 'var(--kmaps-r-sm)',
+                    background: 'rgb(var(--kmaps-danger) / 0.08)',
+                    color: 'rgb(var(--kmaps-danger))',
+                    fontSize: 12,
+                  }}
+                >
+                  {msg}
+                </div>
+              ))}
             </div>
           ) : null}
           <div
@@ -387,6 +428,10 @@ interface RegionRowProps {
   meta: RegionMeta
   isActive: boolean
   isUninstalling: boolean
+  /** Last uninstall failure message for this region. Rendered inline
+   *  below the row so the user sees why their delete didn't take
+   *  effect. Undefined when there's no error to show. */
+  uninstallError?: string
   onActivate: () => void
   onUninstall: () => void
   CheckCircle2?: FC<{ className?: string; style?: object }>
@@ -399,6 +444,7 @@ const RegionRow: FC<RegionRowProps> = ({
   meta,
   isActive,
   isUninstalling,
+  uninstallError,
   onActivate,
   onUninstall,
   CheckCircle2,
@@ -414,12 +460,18 @@ const RegionRow: FC<RegionRowProps> = ({
   // explains.
   const isStub = meta.valhallaVersion === 'stub'
   const ActiveIcon = isActive ? CheckCircle2 : Circle
-  const oaMissing = !meta.oaImportedAt
+  // Suppress the "OSM addresses only" warning for stub regions — a
+  // stub has NO geocoder rows at all (not even OSM), so the warning
+  // is technically wrong and would confuse devs smoke-testing. Real
+  // regions still surface it normally.
+  const oaMissing = !meta.oaImportedAt && !isStub
   return (
     <li
       style={{
         display: 'grid',
         gridTemplateColumns: '24px 1fr auto auto',
+        // 1fr / row-content row + auto for the optional error row.
+        gridTemplateRows: uninstallError ? 'auto auto' : 'auto',
         alignItems: 'center',
         gap: 10,
         padding: '10px 12px',
@@ -556,6 +608,25 @@ const RegionRow: FC<RegionRowProps> = ({
       >
         {Trash2 ? <Trash2 className="w-4 h-4" /> : null}
       </button>
+      {uninstallError ? (
+        <div
+          role="alert"
+          style={{
+            // Span the full row width in the grid's second row.
+            gridColumn: '1 / -1',
+            gridRow: 2,
+            marginTop: 6,
+            padding: '4px 8px',
+            borderRadius: 'var(--kmaps-r-sm)',
+            background: 'rgb(var(--kmaps-danger) / 0.08)',
+            color: 'rgb(var(--kmaps-danger))',
+            fontSize: 11,
+            fontFamily: 'var(--kmaps-font-mono)',
+          }}
+        >
+          Uninstall failed: {uninstallError}
+        </div>
+      ) : null}
     </li>
   )
 }
