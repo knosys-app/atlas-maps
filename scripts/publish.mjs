@@ -53,6 +53,18 @@ const VERSION_BASE = '3.0.0'
 const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')
 const skipBuild = args.includes('--skip-build')
+// --reindex <version> re-runs just the community-plugins index PR
+// step for an already-published release. Used when the index step
+// failed mid-publish (e.g. clone auth issue) so the release exists
+// but the index entry was never updated. Downloads the released
+// tarball to recompute the sha256 — the script's own pack output is
+// already gone by then.
+const reindexIdx = args.indexOf('--reindex')
+const reindexVersion = reindexIdx >= 0 ? args[reindexIdx + 1] : null
+if (reindexIdx >= 0 && !reindexVersion) {
+  console.error('--reindex requires a version (e.g. --reindex 3.0.0-alpha.1)')
+  process.exit(1)
+}
 
 // ---------- Shell helpers ----------
 
@@ -284,7 +296,11 @@ function openIndexPR(version, tarball, sha) {
   const tmpDir = join(tmpdir(), `community-plugins-${Date.now()}`)
 
   try {
-    sh(`gh repo clone ${REGISTRY_REPO} "${tmpDir}" -- --depth=1`, { silent: true })
+    // Clone via SSH explicitly. `gh repo clone` defaults to HTTPS,
+    // which then prompts for username on push — fatal in a non-
+    // interactive script run. SSH matches atlas-maps' own remote
+    // config so the user's existing SSH key just works.
+    sh(`git clone --depth=1 git@github.com:${REGISTRY_REPO}.git "${tmpDir}"`, { silent: true })
 
     const indexPath = join(tmpDir, 'index.json')
     const index = JSON.parse(readFileSync(indexPath, 'utf8'))
@@ -332,7 +348,10 @@ function openIndexPR(version, tarball, sha) {
       `git commit -m "bump(knosys-maps): ${prevVersion} → ${version}"`,
       { cwd: tmpDir, silent: true },
     )
-    sh(`git push -u origin "${branch}"`, { cwd: tmpDir, silent: true })
+    // Push output stays visible so any auth / network failure
+    // surfaces in the log — previously silent and we lost visibility
+    // when the index PR step failed.
+    sh(`git push -u origin "${branch}"`, { cwd: tmpDir })
 
     const body =
       `Bumps \`knosys-maps\` from \`${prevVersion}\` to \`${version}\`.\n\n` +
@@ -342,11 +361,16 @@ function openIndexPR(version, tarball, sha) {
       `Auto-created as draft — review the index.json diff, mark ready, and merge.`
 
     // Use --body-file so multi-line markdown doesn't get mangled by
-    // shell quoting on every platform.
+    // shell quoting on every platform. `--repo` + `--head` are
+    // explicit so gh doesn't probe local git config to discover the
+    // upstream — that probe sometimes misfires in fresh clones even
+    // after `git push -u` set tracking.
     const bodyFile = join(tmpDir, '.pr-body.md')
     writeFileSync(bodyFile, body)
     const prUrl = shCapture(
       `gh pr create --draft ` +
+        `--repo ${REGISTRY_REPO} ` +
+        `--head "${branch}" ` +
         `--title "bump(knosys-maps): ${prevVersion} → ${version}" ` +
         `--body-file "${bodyFile}"`,
       { cwd: tmpDir },
@@ -356,6 +380,25 @@ function openIndexPR(version, tarball, sha) {
   } finally {
     rmSync(tmpDir, { recursive: true, force: true })
   }
+}
+
+/** Download a previously-released tarball from GitHub and return
+ *  its local path. Used by --reindex when the original publish run
+ *  didn't get to write the local file (or already cleaned it up). */
+function downloadReleasedTarball(version) {
+  const tarball = `${PLUGIN_ID}-${version}.tgz`
+  step(`Downloading released tarball v${version}`)
+  // gh writes the file to cwd by default. Existing file at the
+  // target path is overwritten — fine because we sha256 right after.
+  sh(
+    `gh release download "v${version}" --pattern "${tarball}" --clobber`,
+    { silent: true },
+  )
+  if (!existsSync(tarball)) {
+    fail(`gh release download did not produce ${tarball}`)
+  }
+  info(`Downloaded ${tarball}`)
+  return tarball
 }
 
 function restoreFiles(tarball) {
@@ -377,7 +420,34 @@ function restoreFiles(tarball) {
 
 // ---------- Main ----------
 
+async function reindexOnly(version) {
+  console.log(`(REINDEX — opening community-plugins PR for existing v${version})\n`)
+  verifyGh()
+  // Skip the verifyClean / verifyTagAvailable / bump / build / pack
+  // / tag / release steps — they're already done. Just rebuild the
+  // sha256 from the already-released tarball and open the PR.
+  let tarball = null
+  try {
+    tarball = downloadReleasedTarball(version)
+    const sha = sha256(tarball)
+    info(`SHA256: ${sha}`)
+    const tarballName = `${PLUGIN_ID}-${version}.tgz`
+    const prUrl = openIndexPR(version, tarballName, sha)
+
+    step('Done')
+    console.log(`\n✓ Reindexed v${version}`)
+    console.log(`  Index PR: ${prUrl}`)
+    console.log(`\nNext: review the draft PR → mark ready → merge.`)
+    console.log(`Then: Knosys → Settings → Plugins → Browse Store → Update.`)
+  } finally {
+    if (tarball && existsSync(tarball)) rmSync(tarball)
+  }
+}
+
 async function main() {
+  if (reindexVersion) {
+    return reindexOnly(reindexVersion)
+  }
   if (dryRun) console.log('(DRY RUN — no remote side effects)\n')
 
   verifyGh()
