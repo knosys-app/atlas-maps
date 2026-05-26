@@ -34,6 +34,7 @@ import { useSavedStore } from '@/store/saved-store'
 import { useRouteStore } from '@/store/route-store'
 import { useRegionStore } from '@/regions/region-store'
 import type { RegionMeta } from '@/regions/meta'
+import { VAULT_PATHS } from '@/constants'
 import { STARTER_REGIONS } from '@/data/regions'
 import { toDisplayStep } from '@/routing/step-display'
 import type { RouteProfile } from '@/routing/types'
@@ -65,15 +66,20 @@ export function createMapsPage(
   const MapsPage: ComponentType<unknown> = () => {
     const settings = useSettingsStore()
     const regions = useRegionStore()
-    // Active region drives the rail/sheet visibility gate AND which
-    // region's places.db the geocoder opens. Sourced from the region
-    // store which hydrates from the vault on mount (slice 6a) and
-    // gains install/delete actions in slice 6b. `pmtilesUrl` stays
-    // null until slice 2b registers the `pmtiles://` protocol —
-    // passing the vault path here without the protocol wired up
-    // would just print a 404 in the console.
+    // Active region drives the rail/sheet visibility gate, which
+    // region's places.db the geocoder opens, AND which PMTiles
+    // archive the MapViewer renders. Sourced from the region store
+    // which hydrates from the vault on mount (slice 6a) and gains
+    // install/delete actions in slice 6b.
     const activeRegionId = regions.activeRegionId
-    const [pmtilesUrl] = useState<string | null>(null)
+    // Vault-relative path to the active region's PMTiles archive,
+    // resolved by the `pmtiles://` protocol handler (slice 2b's
+    // cached-pmtiles-protocol). Null when no region is active so
+    // the MapViewer mounts with an empty style and EmptyState
+    // overlays the canvas. The string MUST be vault-relative so the
+    // host's `api.vault.readFileBytes` accepts it.
+    const pmtilesUrl =
+      activeRegionId !== null ? VAULT_PATHS.regionPmtiles(activeRegionId) : null
     // Engine pre-warm status lives in refs rather than React state
     // because nothing in the render body currently reads it — using
     // state would schedule a re-render of MapsPage (and therefore
