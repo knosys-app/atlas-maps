@@ -1,0 +1,25 @@
+node_modules/
+
+# Build artifacts (main.js itself is tracked as the plugin's
+# distribution artifact, but other Vite outputs aren't)
+dist/
+.vite/
+
+# npm pack output (publish script generates + cleans these)
+*.tgz
+
+# Test coverage
+coverage/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Local release notes scratch (publish script generates + cleans)
+.release-notes.md
+.pr-body.md
