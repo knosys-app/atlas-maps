@@ -123,6 +123,19 @@ export function createMapsPage(
     // we confirm the user hasn't dismissed before. On a clean install
     // the read resolves `null` and the effect sets dismissed = false,
     // exposing the card.
+    //
+    // Trade-off direction is intentional. The two options are:
+    //   (a) default true → returning-dismissed users see nothing; new
+    //       users see ~one-frame blank → card appears.
+    //   (b) default false → new users see card immediately; returning-
+    //       dismissed users see card → flashes away after read.
+    // We pick (a): returning-dismissed users are the more frequent
+    // case once a user has made a choice, and a flash of "card then
+    // immediately gone" is more jarring than a brief absence (the map
+    // chrome is already visible during the window). `api.storage.get`
+    // resolves through a single Knosys IPC round-trip backed by an
+    // in-process SQLite read — typically sub-50 ms on every Knosys
+    // platform.
     const [emptyStateDismissed, setEmptyStateDismissed] = useState<boolean>(true)
     useEffect(() => {
       let cancelled = false

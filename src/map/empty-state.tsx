@@ -91,34 +91,9 @@ export function createEmptyState(Shared: SharedDependencies) {
         {onDismiss && X ? (
           <button
             type="button"
+            className="kmaps-empty-state-dismiss"
             onClick={onDismiss}
             aria-label="Dismiss install region prompt"
-            style={{
-              position: 'absolute',
-              top: 10,
-              left: 10,
-              width: 28,
-              height: 28,
-              border: 'none',
-              borderRadius: '50%',
-              background: 'rgb(var(--kmaps-fg) / 0.06)',
-              color: 'rgb(var(--kmaps-fg-muted))',
-              display: 'grid',
-              placeItems: 'center',
-              cursor: 'pointer',
-              transition:
-                'background var(--kmaps-dur-base) var(--kmaps-spring-b), color var(--kmaps-dur-base) var(--kmaps-spring-b)',
-            }}
-            onMouseEnter={(e) => {
-              const t = e.currentTarget
-              t.style.background = 'rgb(var(--kmaps-fg) / 0.12)'
-              t.style.color = 'rgb(var(--kmaps-fg))'
-            }}
-            onMouseLeave={(e) => {
-              const t = e.currentTarget
-              t.style.background = 'rgb(var(--kmaps-fg) / 0.06)'
-              t.style.color = 'rgb(var(--kmaps-fg-muted))'
-            }}
           >
             <X className="w-4 h-4" />
           </button>

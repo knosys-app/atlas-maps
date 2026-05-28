@@ -278,6 +278,36 @@ html:not(.dark)[data-theme='light'] .kmaps-scope {
   font-weight: 400;
 }
 
+/* ========== Empty-state dismiss button ==========
+ * Top-left of the "Install your first region" card. Pure CSS so
+ * `:hover` and `:focus-visible` both apply the same highlight —
+ * the inline-style + onMouseEnter approach used previously left
+ * keyboard-focused users without any background change (the global
+ * focus-visible outline did show, but the tonal shift didn't). */
+
+.kmaps-empty-state-dismiss {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: rgb(var(--kmaps-fg) / 0.06);
+  color: rgb(var(--kmaps-fg-muted));
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    background var(--kmaps-dur-base) var(--kmaps-spring-b),
+    color var(--kmaps-dur-base) var(--kmaps-spring-b);
+}
+.kmaps-empty-state-dismiss:hover,
+.kmaps-empty-state-dismiss:focus-visible {
+  background: rgb(var(--kmaps-fg) / 0.12);
+  color: rgb(var(--kmaps-fg));
+}
+
 /* ========== Layers button (top-right) ========== */
 
 .kmaps-layers-btn {
