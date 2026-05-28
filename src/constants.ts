@@ -39,6 +39,10 @@ export const SETTINGS_KEYS = {
   units: 'maps.units',
   voiceOn: 'maps.voice-on',
   gpsSource: 'maps.gps-source',
+  /** Whether the user has dismissed the "Install your first region"
+   *  card. Persists across sessions; users can still install regions
+   *  via Settings → Plugins → Knosys Maps → Regions. */
+  emptyStateDismissed: 'maps.empty-state-dismissed',
 } as const
 
 /** Default MapLibre camera when no per-region viewport is stored. The
