@@ -34,7 +34,7 @@ import { useSavedStore } from '@/store/saved-store'
 import { useRouteStore } from '@/store/route-store'
 import { useRegionStore } from '@/regions/region-store'
 import type { RegionMeta } from '@/regions/meta'
-import { VAULT_PATHS } from '@/constants'
+import { SETTINGS_KEYS, VAULT_PATHS } from '@/constants'
 import { STARTER_REGIONS } from '@/data/regions'
 import { toDisplayStep } from '@/routing/step-display'
 import type { RouteProfile } from '@/routing/types'
@@ -111,6 +111,43 @@ export function createMapsPage(
       }
     }, [])
 
+    // EmptyState dismissal. Persists across sessions via `api.storage`
+    // so a user who has decided "I know I need a region, I'll do it
+    // later" doesn't get pestered every time they re-enter the route.
+    // The install path through Settings → Plugins → Knosys Maps →
+    // Regions is independent of this card, so dismissal never blocks a
+    // user from eventually installing a region.
+    //
+    // Initialized to `true` to suppress a first-paint flash of the
+    // card while the storage read is in flight; flipped to false once
+    // we confirm the user hasn't dismissed before. On a clean install
+    // the read resolves `null` and the effect sets dismissed = false,
+    // exposing the card.
+    const [emptyStateDismissed, setEmptyStateDismissed] = useState<boolean>(true)
+    useEffect(() => {
+      let cancelled = false
+      ;(async () => {
+        const stored = await api.storage
+          .get<boolean>(SETTINGS_KEYS.emptyStateDismissed)
+          .catch(() => null)
+        if (cancelled) return
+        setEmptyStateDismissed(stored === true)
+      })()
+      return () => {
+        cancelled = true
+      }
+    }, [])
+    const handleDismissEmptyState = () => {
+      setEmptyStateDismissed(true)
+      void api.storage.set(SETTINGS_KEYS.emptyStateDismissed, true).catch((err) => {
+        // Don't roll back the optimistic UI — a failed persist is a
+        // soft regression (the card returns next session) but the
+        // user clearly wants it gone this session. Log so the failure
+        // is observable in diagnostics.
+        api.log.error('Failed to persist EmptyState dismissal', err)
+      })
+    }
+
     const saved = useSavedStore()
     const route = useRouteStore()
 
@@ -174,9 +211,10 @@ export function createMapsPage(
           pmtilesUrl={pmtilesUrl}
           routeGeometry={routeGeometry}
         />
-        {activeRegionId === null ? (
+        {activeRegionId === null && !emptyStateDismissed ? (
           <EmptyState
             onInstallRegion={handleInstallRegion}
+            onDismiss={handleDismissEmptyState}
             surface={isOnline ? 'card-only' : 'backdrop'}
           />
         ) : null}

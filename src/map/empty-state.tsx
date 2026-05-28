@@ -28,13 +28,25 @@ export interface EmptyStateProps {
    *  — the floating card stays but the gradient overlay drops so the
    *  user can see geographic context. */
   surface?: 'backdrop' | 'card-only'
+  /** Optional dismiss handler. When provided, an X button is shown in
+   *  the top-left of the card; clicking it invokes the callback and
+   *  the parent should hide the EmptyState (and persist the dismissal
+   *  so it doesn't return next session). When omitted, no close
+   *  button renders. The CTA card is purely advisory — the install
+   *  path through Settings → Plugins → Knosys Maps → Regions remains
+   *  available whether or not this card is dismissed. */
+  onDismiss?: () => void
 }
 
 export function createEmptyState(Shared: SharedDependencies) {
   const icons = Shared.lucideIcons as Record<string, FC<{ className?: string; style?: object }>>
-  const { MapPin, Download } = icons
+  const { MapPin, Download, X } = icons
 
-  const EmptyState: FC<EmptyStateProps> = ({ onInstallRegion, surface = 'backdrop' }) => (
+  const EmptyState: FC<EmptyStateProps> = ({
+    onInstallRegion,
+    surface = 'backdrop',
+    onDismiss,
+  }) => (
     <div
       role="region"
       aria-label="No region installed"
@@ -64,6 +76,7 @@ export function createEmptyState(Shared: SharedDependencies) {
       <div
         className="kmaps-surface-thick"
         style={{
+          position: 'relative',
           maxWidth: 360,
           padding: 28,
           borderRadius: 'var(--kmaps-r-lg)',
@@ -75,6 +88,41 @@ export function createEmptyState(Shared: SharedDependencies) {
           gap: 14,
         }}
       >
+        {onDismiss && X ? (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dismiss install region prompt"
+            style={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              width: 28,
+              height: 28,
+              border: 'none',
+              borderRadius: '50%',
+              background: 'rgb(var(--kmaps-fg) / 0.06)',
+              color: 'rgb(var(--kmaps-fg-muted))',
+              display: 'grid',
+              placeItems: 'center',
+              cursor: 'pointer',
+              transition:
+                'background var(--kmaps-dur-base) var(--kmaps-spring-b), color var(--kmaps-dur-base) var(--kmaps-spring-b)',
+            }}
+            onMouseEnter={(e) => {
+              const t = e.currentTarget
+              t.style.background = 'rgb(var(--kmaps-fg) / 0.12)'
+              t.style.color = 'rgb(var(--kmaps-fg))'
+            }}
+            onMouseLeave={(e) => {
+              const t = e.currentTarget
+              t.style.background = 'rgb(var(--kmaps-fg) / 0.06)'
+              t.style.color = 'rgb(var(--kmaps-fg-muted))'
+            }}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        ) : null}
         <div
           aria-hidden
           style={{
