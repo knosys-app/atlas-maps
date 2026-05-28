@@ -279,10 +279,18 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
 
   // React to system / Knosys appearance changes. Re-runs the theme
   // resolver and swaps the style flavor without dropping the camera.
+  //
+  // No early-return on `mapRef.current` even though it's null at first
+  // mount: the map is created inside an async IIFE that awaits
+  // `loadViewport`, so this effect always runs before the map exists.
+  // If we early-exited here, the MutationObserver + matchMedia listener
+  // would never get registered in the empty-state scenario (pmtilesUrl
+  // stays null, so the effect's deps never trigger a re-run) — and a
+  // user on the online basemap fallback would see no dark/light theme
+  // swap. The inner handler guards with its own `mapRef.current` null
+  // check, so calling setStyle through the listener is safe whether or
+  // not the map has mounted yet.
   useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-
     const mq =
       typeof window !== 'undefined' && window.matchMedia
         ? window.matchMedia('(prefers-color-scheme: dark)')
