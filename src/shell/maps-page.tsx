@@ -90,6 +90,27 @@ export function createMapsPage(
     const engineErrorRef = useRef<string | null>(null)
     const enginePhaseRef = useRef<string>('')
 
+    // Track navigator.onLine so the EmptyState can drop its full-bleed
+    // backdrop and let the MapViewer's online basemap show through.
+    // The MapViewer manages its own onLineRef for style decisions, but
+    // the EmptyState's `surface` prop needs to react on render. SSR
+    // guard: treat unknown as online so first paint matches the most
+    // common case.
+    const [isOnline, setIsOnline] = useState<boolean>(
+      typeof navigator === 'undefined' ? true : navigator.onLine,
+    )
+    useEffect(() => {
+      if (typeof window === 'undefined') return
+      const onOnline = () => setIsOnline(true)
+      const onOffline = () => setIsOnline(false)
+      window.addEventListener('online', onOnline)
+      window.addEventListener('offline', onOffline)
+      return () => {
+        window.removeEventListener('online', onOnline)
+        window.removeEventListener('offline', onOffline)
+      }
+    }, [])
+
     const saved = useSavedStore()
     const route = useRouteStore()
 
@@ -154,7 +175,10 @@ export function createMapsPage(
           routeGeometry={routeGeometry}
         />
         {activeRegionId === null ? (
-          <EmptyState onInstallRegion={handleInstallRegion} />
+          <EmptyState
+            onInstallRegion={handleInstallRegion}
+            surface={isOnline ? 'card-only' : 'backdrop'}
+          />
         ) : null}
       </div>
     )
