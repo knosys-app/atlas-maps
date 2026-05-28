@@ -14,6 +14,17 @@
  * and use `api.vault.readFileBytes` to do range reads — see
  * `cached-pmtiles-protocol.ts` (lands with slice 2b / slice 6).
  *
+ * Online fallback: when no region is installed AND the renderer is
+ * online, return an OpenFreeMap style URL so the map shows a real
+ * basemap underneath the install-a-region CTA. v2.1 of this plugin
+ * rendered OpenFreeMap tiles by default — the v3 rewrite initially
+ * dropped that in favor of an offline-first empty state, but a blank
+ * canvas with no geographic context made it harder for users to
+ * decide which region to install. The online fallback returns the
+ * full `liberty` / `dark-matter` styles MapLibre fetches over HTTPS
+ * — when an offline region is installed, the style swap takes over
+ * and the online basemap is dropped.
+ *
  * Theme resolution priority:
  *   1. `<html class="dark">` — Knosys ThemeProvider's explicit dark.
  *   2. `<html data-theme="..." >` — host's declared mode.
@@ -26,6 +37,22 @@ import type { StyleSpecification } from 'maplibre-gl'
 import { MAP_ATTRIBUTION } from '@/constants'
 
 export type MapTheme = 'light' | 'dark'
+
+/** OpenFreeMap style URLs — same provider the v2.1 plugin used. No
+ *  API key, no per-request quotas published. `liberty` is the
+ *  general-purpose colorful style; `dark-matter` is its dark twin.
+ *  Picked together so light + dark mode both have a coherent online
+ *  basemap. */
+const OPENFREEMAP_LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
+const OPENFREEMAP_DARK_STYLE = 'https://tiles.openfreemap.org/styles/dark-matter'
+
+/** Returns the OpenFreeMap style URL for the active theme. Callers
+ *  guard on `navigator.onLine` before using this — MapLibre will
+ *  fetch the style.json and stream tiles over HTTPS, so this is only
+ *  appropriate when the renderer has a network connection. */
+export function buildOnlineFallbackStyle(theme: MapTheme): string {
+  return theme === 'dark' ? OPENFREEMAP_DARK_STYLE : OPENFREEMAP_LIGHT_STYLE
+}
 
 /** Protomaps hosts the glyphs + sprite assets used by the basemap
  *  flavors. These remain over HTTPS because they're small + cached by
@@ -63,22 +90,43 @@ export function currentMapTheme(): MapTheme {
   return 'light'
 }
 
+export interface BuildStyleOptions {
+  /** When true AND `pmtilesUrl` is null, return the OpenFreeMap URL
+   *  string so the map renders an online basemap behind the empty
+   *  state CTA. When false (offline or explicitly disabled), the
+   *  empty-style fallback applies — MapLibre renders a blank canvas
+   *  and the gradient-backed EmptyState covers it. */
+  online?: boolean
+}
+
 /**
  * Build a MapLibre style for a per-region PMTiles archive at
  * `pmtilesUrl` (passed through to the registered protocol handler).
  *
- * Pass `null` when no region is active — returns an empty style so the
- * map canvas mounts without rendering vector layers. The chrome stays
- * visible against the host background; the zero-state UI sits over it.
+ * Return shape varies by branch:
+ *   - PMTiles present → inline `StyleSpecification` with `pmtiles://` source.
+ *   - No PMTiles + `options.online` → OpenFreeMap URL string (MapLibre
+ *     fetches the style + glyphs + sprite + tiles itself).
+ *   - No PMTiles + offline → empty `StyleSpecification`; MapLibre
+ *     renders a blank canvas and the EmptyState overlay shows.
+ *
+ * MapLibre's `Map.setStyle` and the `style` constructor option both
+ * accept `StyleSpecification | string`, so the caller doesn't branch.
  */
 export function buildPlanetStyle(
   pmtilesUrl: string | null,
   theme: MapTheme = 'light',
-): StyleSpecification {
+  options: BuildStyleOptions = {},
+): StyleSpecification | string {
   if (!pmtilesUrl) {
-    // No region active: empty style. MapLibre will render an empty
-    // canvas (no tiles, no layers), and the EmptyState overlay covers
-    // it with the install-a-region affordance.
+    if (options.online) {
+      // Online + no region: render OpenFreeMap as a basemap context
+      // so users can orient themselves before picking a region. The
+      // EmptyState CTA still floats over it in card-only mode.
+      return buildOnlineFallbackStyle(theme)
+    }
+    // Offline + no region: empty style. MapLibre renders a blank
+    // canvas, and the EmptyState's gradient backdrop covers it.
     return {
       version: 8,
       sources: {},

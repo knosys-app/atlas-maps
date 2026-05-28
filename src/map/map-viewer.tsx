@@ -99,6 +99,12 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
   // the case where a route is already set when the map mounts) and
   // the routeGeometry useEffect below.
   const prevRouteRef = useRef<RouteLineGeometry | null>(null)
+  // Tracks `navigator.onLine` so style-build calls in the mount IIFE
+  // and the hot-swap effects all see the same value without each one
+  // re-reading the navigator (which would risk skew during a flaky
+  // network where back-to-back reads disagree). Updated by the
+  // online/offline listener effect below.
+  const onLineRef = useRef(typeof navigator === 'undefined' ? true : navigator.onLine)
 
   // Mount MapLibre once. The map instance lives for the lifetime of
   // the MapViewer component; style + tile source swaps happen through
@@ -129,7 +135,9 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
         // as a URL — 404 against our vault scheme.
         ensurePmtilesForUrl(api, initialPmtiles)
       }
-      const style = buildPlanetStyle(initialPmtiles, theme)
+      const style = buildPlanetStyle(initialPmtiles, theme, {
+        online: onLineRef.current,
+      })
 
       const map = new maplibregl.Map({
         container: containerRef.current,
@@ -221,7 +229,7 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
       ensurePmtilesForUrl(api, pmtilesUrl)
     }
     const theme = currentMapTheme()
-    map.setStyle(buildPlanetStyle(pmtilesUrl, theme))
+    map.setStyle(buildPlanetStyle(pmtilesUrl, theme, { online: onLineRef.current }))
     // Drop any previously-registered archives so a region-switch
     // session (A → B → C) doesn't accumulate every visited archive's
     // ~50-150 MB buffer in the renderer heap. Switching back to a
@@ -271,10 +279,18 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
 
   // React to system / Knosys appearance changes. Re-runs the theme
   // resolver and swaps the style flavor without dropping the camera.
+  //
+  // No early-return on `mapRef.current` even though it's null at first
+  // mount: the map is created inside an async IIFE that awaits
+  // `loadViewport`, so this effect always runs before the map exists.
+  // If we early-exited here, the MutationObserver + matchMedia listener
+  // would never get registered in the empty-state scenario (pmtilesUrl
+  // stays null, so the effect's deps never trigger a re-run) — and a
+  // user on the online basemap fallback would see no dark/light theme
+  // swap. The inner handler guards with its own `mapRef.current` null
+  // check, so calling setStyle through the listener is safe whether or
+  // not the map has mounted yet.
   useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-
     const mq =
       typeof window !== 'undefined' && window.matchMedia
         ? window.matchMedia('(prefers-color-scheme: dark)')
@@ -290,7 +306,7 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
         // loads. Idempotent registrations skip re-binding.
         ensurePmtilesForUrl(api, pmtilesUrl)
       }
-      m.setStyle(buildPlanetStyle(pmtilesUrl, currentMapTheme()))
+      m.setStyle(buildPlanetStyle(pmtilesUrl, currentMapTheme(), { online: onLineRef.current }))
     }
     mq?.addEventListener('change', handler)
 
@@ -308,6 +324,33 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
       obs.disconnect()
     }
   }, [api, pmtilesUrl])
+
+  // Track navigator.onLine and re-run setStyle when it flips, but only
+  // when there's no active region — once a region is installed, its
+  // PMTiles take precedence and the online basemap is irrelevant.
+  // Without this, a user who loads the plugin offline (empty canvas)
+  // then regains network would have to swap regions or reload to see
+  // the online basemap kick in.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handler = () => {
+      onLineRef.current = navigator.onLine
+      const m = mapRef.current
+      if (!m) return
+      // Only restyle when no region is active — installed regions
+      // render offline PMTiles regardless of network state.
+      if (pmtilesUrlRef.current) return
+      m.setStyle(buildPlanetStyle(null, currentMapTheme(), { online: onLineRef.current }))
+    }
+
+    window.addEventListener('online', handler)
+    window.addEventListener('offline', handler)
+    return () => {
+      window.removeEventListener('online', handler)
+      window.removeEventListener('offline', handler)
+    }
+  }, [])
 
   return (
     <div
