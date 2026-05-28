@@ -6,9 +6,20 @@ import { resolve } from 'path'
  * Vite build config for the v3 plugin.
  *
  * Outputs a single CommonJS `main.js` consumed by the Knosys host
- * plugin loader. React + react-dom remain external (provided by host
- * via the Shared dependencies bundle). MapLibre and other heavy deps
- * are bundled into the plugin.
+ * plugin loader.
+ *
+ * Externals:
+ *   - `react` — provided by the host's pluginRequire shim
+ *     (resolves to `Shared.React`).
+ *   - `react-dom` — NOT externalised. The host's shim explicitly
+ *     throws on `require('react-dom')` to catch plugins that pull
+ *     it in by accident. We have transitive consumers
+ *     (@dnd-kit/core uses createPortal for the drag overlay) so
+ *     react-dom MUST bundle into main.js — externalising it would
+ *     make activate() unreachable when the module's top-level
+ *     `require('react-dom')` throws inside the host shim.
+ *
+ * MapLibre, pmtiles, protomaps, dnd-kit, and zustand all bundle in.
  */
 export default defineConfig({
   plugins: [react()],
@@ -27,10 +38,9 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      // React is still provided by the host. Everything else is bundled.
-      external: ['react', 'react-dom'],
+      external: ['react'],
       output: {
-        globals: { react: 'React', 'react-dom': 'ReactDOM' },
+        globals: { react: 'React' },
       },
     },
     cssCodeSplit: false,
