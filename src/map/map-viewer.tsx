@@ -7,7 +7,11 @@
  *
  *   - Initialize a MapLibre map at the saved viewport (or the default
  *     US-centered view).
- *   - Mount the basic NavigationControl + ScaleControl.
+ *   - Mount the ScaleControl in the bottom-left for orientation. We
+ *     intentionally skip MapLibre's NavigationControl — Apple/Google
+ *     Maps don't expose explicit +/- buttons on desktop, scroll-wheel
+ *     and trackpad pinch handle zoom, and on-canvas it would collide
+ *     with the top-right Layers button at `top:16/right:16`.
  *   - Save viewport on `moveend` / `zoomend` so re-entering the route
  *     restores the last camera.
  *   - Hot-swap the style on theme change (system / Knosys appearance
@@ -139,7 +143,6 @@ export const MapViewer: FC<MapViewerProps> = ({ api, regionId, pmtilesUrl, route
         attributionControl: { compact: true },
       })
 
-      map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right')
       map.addControl(
         new maplibregl.ScaleControl({ maxWidth: 120, unit: 'imperial' }),
         'bottom-left',

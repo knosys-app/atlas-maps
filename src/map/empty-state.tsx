@@ -104,7 +104,7 @@ export function createEmptyState(Shared: SharedDependencies) {
             border: 'none',
             borderRadius: 999,
             background: 'rgb(var(--kmaps-accent))',
-            color: 'white',
+            color: 'rgb(var(--kmaps-accent-ink))',
             fontFamily: 'var(--kmaps-font-display)',
             fontWeight: 600,
             fontSize: 13.5,

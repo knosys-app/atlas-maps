@@ -67,8 +67,17 @@
     0 0.5px 0 rgb(255 255 255 / 0.5) inset,
     0 1px 2px rgb(0 0 0 / 0.04),
     0 12px 30px -10px rgb(0 0 0 / 0.18);
-  --kmaps-accent: 0 122 255;           /* SF system blue */
-  --kmaps-accent-ink: 255 255 255;
+  /* Chrome accent. Inside Knosys the host writes `--kdl-accent` /
+   * `--kdl-accent-ink` per the user's selected theme accent (cobalt /
+   * lumen / meadow / glacier / plum / rose); we mirror those tokens so
+   * the plugin chrome (buttons, focus rings, badges, pill icon) tracks
+   * the rest of the app. The fallback values keep the plugin coherent
+   * when it runs outside Knosys (SF system blue + white). The map's
+   * route-line and destination/GPS markers stay hard-coded to SF blue
+   * in the rendering layers — they're the routing-critical signal and
+   * shouldn't shift with the user's theme accent. */
+  --kmaps-accent: var(--kdl-accent, 0 122 255);
+  --kmaps-accent-ink: var(--kdl-accent-ink, 255 255 255);
   --kmaps-warn: 255 159 10;            /* SF system orange */
   --kmaps-danger: 255 69 58;           /* SF system red */
   --kmaps-success: 52 199 89;          /* SF system green */
@@ -104,7 +113,8 @@ html[data-theme='dark'] .kmaps-scope {
     0 0.5px 0 rgb(255 255 255 / 0.10) inset,
     0 1px 2px rgb(0 0 0 / 0.35),
     0 20px 45px -10px rgb(0 0 0 / 0.55);
-  --kmaps-accent: 10 132 255;
+  --kmaps-accent: var(--kdl-accent, 10 132 255);
+  --kmaps-accent-ink: var(--kdl-accent-ink, 255 255 255);
   --kmaps-warn: 255 179 64;
   --kmaps-danger: 255 105 97;
   --kmaps-success: 48 209 88;
@@ -126,7 +136,8 @@ html[data-theme='dark'] .kmaps-scope {
       0 0.5px 0 rgb(255 255 255 / 0.10) inset,
       0 1px 2px rgb(0 0 0 / 0.35),
       0 20px 45px -10px rgb(0 0 0 / 0.55);
-    --kmaps-accent: 10 132 255;
+    --kmaps-accent: var(--kdl-accent, 10 132 255);
+    --kmaps-accent-ink: var(--kdl-accent-ink, 255 255 255);
     --kmaps-warn: 255 179 64;
     --kmaps-danger: 255 105 97;
     --kmaps-success: 48 209 88;
@@ -151,7 +162,8 @@ html:not(.dark)[data-theme='light'] .kmaps-scope {
     0 0.5px 0 rgb(255 255 255 / 0.5) inset,
     0 1px 2px rgb(0 0 0 / 0.04),
     0 12px 30px -10px rgb(0 0 0 / 0.18);
-  --kmaps-accent: 0 122 255;
+  --kmaps-accent: var(--kdl-accent, 0 122 255);
+  --kmaps-accent-ink: var(--kdl-accent-ink, 255 255 255);
   --kmaps-warn: 255 159 10;
   --kmaps-danger: 255 69 58;
   --kmaps-success: 52 199 89;
